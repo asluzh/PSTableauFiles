@@ -1,9 +1,9 @@
 # original script here https://joshua.poehls.me/2013/tableaukit-a-powershell-module-for-tableau/
 
-function Get-TableauWorkbookXml {
+function Get-TableauDocumentXml {
 <#
 .SYNOPSIS
-    Gets the workbook XML from a TWB or TWBX file.
+    Gets the workbook/datasource XML from a TWBX/TDSX file.
 
 .NOTES
     tbd
@@ -63,18 +63,48 @@ function Get-TableauWorkbookXml {
     }
 }
 
-function Get-TableauDatasourceLiveFile {
-    <#
-    .SYNOPSIS
-        tbd
+function Update-TableauDocumentFromXml {
+<#
+.SYNOPSIS
+    Exports the workbook XML to a TWB or TWBX file.
 
-    .NOTES
-        tbd
-    #>
-    [CmdletBinding()]
+.PARAMETER Path
+    The literal file path to export to.
+
+.PARAMETER WorkbookXml
+    The workbook XML to export.
+
+.PARAMETER Update
+    Whether to update the TWB inside the destination TWBX file
+    if the destination file exists.
+
+.PARAMETER Force
+    Whether to overwrite the destination TWBX file if it exists.
+    By default, you will be prompted whether to overwrite any
+    existing file.
+
+.NOTES
+    tbd
+#>
+    [CmdletBinding(
+        SupportsShouldProcess=$true
+    )]
     param(
-        [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
-        [string]$Path
+        [Parameter(
+            Position=0,
+            Mandatory=$true
+        )]
+        [string]$Path,
+
+        [Parameter(
+            Position=1,
+            Mandatory=$true,
+            ValueFromPipeline=$true
+        )]
+        [xml]$WorkbookXml,
+
+        [switch]$Update,
+        [switch]$Force
     )
 
     begin {
@@ -86,38 +116,96 @@ function Get-TableauDatasourceLiveFile {
 
     process {
         [System.Environment]::CurrentDirectory = (Get-Location).Path
-        $extension = [System.IO.Path]::GetExtension($Path)
-        if ($extension -eq ".tds") {
-            return (Get-Content -LiteralPath $Path)
-        }
-        elseif ($extension -eq ".tdsx") {
-            $archiveStream = $null
-            $archive = $null
-            $reader = $null
+        $entryName = [System.IO.Path]::GetFileNameWithoutExtension($Path) + '.twb'
+        $createNewTwbx = $false
 
-            try {
-                $archiveStream = New-Object System.IO.FileStream($Path, [System.IO.FileMode]::Open)
-                $archive = New-Object System.IO.Compression.ZipArchive($archiveStream)
-                $fileEntry = ($archive.Entries | Where-Object { $_.FullName -eq $_.Name -and [System.IO.Path]::GetExtension($_.Name) -eq ".json" })[0]
-                $reader = New-Object System.IO.StreamReader $fileEntry.Open()
+        if (Test-Path $Path) {
+            if ($Update -or $Force -or $PSCmdlet.ShouldContinue('Overwrite existing file?', 'Confirm')) {
+                if ($Update) {
+                    if ($PSCmdlet.ShouldProcess($Path, 'Update TWB in packaged workbook')) {
 
-                $xml = $reader.ReadToEnd()
-                return $xml
-            }
-            finally {
-                if ($reader) {
-                    $reader.Dispose()
+                        [System.IO.FileStream]$fileStream = $null
+                        [System.IO.Compression.ZipArchive]$zip = $null
+                        try {
+                            $fileStream = New-Object System.IO.FileStream -ArgumentList $Path, ([System.IO.FileMode]::Open), ([System.IO.FileAccess]::ReadWrite), ([System.IO.FileShare]::Read)
+                            $zip = New-Object System.IO.Compression.ZipArchive -ArgumentList $fileStream, ([System.IO.Compression.ZipArchiveMode]::Update)
+
+                            # Locate the existing TWB entry and remove it.
+                            $entry = $zip.Entries |
+                                Where-Object {
+                                    # Look for a .twb file at the root level of the archive.
+                                    $_.FullName -eq $_.Name -and ([System.IO.Path]::GetExtension($_.Name)) -eq '.twb'
+                                } |
+                                Select-Object -First 1
+                            if ($entry) {
+                                $entry.Delete()
+                            }
+
+                            $entry = $zip.CreateEntry($entryName, ([System.IO.Compression.CompressionLevel]::Optimal))
+                            [System.IO.Stream]$entryStream = $null
+                            try {
+                                $entryStream = $entry.Open()
+                                $WorkbookXml.Save($entryStream)
+                            }
+                            finally {
+                                if ($entryStream) {
+                                    $entryStream.Dispose()
+                                }
+                            }
+                        }
+                        finally {
+                            if ($zip) {
+                                $zip.Dispose()
+                            }
+                            if ($fileStream) {
+                                $fileStream.Dispose()
+                            }
+                        }
+                    }
                 }
-                if ($archive) {
-                    $archive.Dispose()
-                }
-                if ($archiveStream) {
-                    $archiveStream.Dispose()
+                else {
+                    if ($PSCmdlet.ShouldProcess($Path, 'Replace existing packaged workbook')) {
+                        # delete existing TWBX
+                        Remove-Item $Path -ErrorAction Stop #TODO: Figure out how to pass WhatIf and Confirm to this
+
+                        $createNewTwbx = $true
+                    }
                 }
             }
         }
         else {
-            throw "Unknown file type. Expected a TDS or TDSX file extension."
+            if ($PSCmdlet.ShouldProcess($Path, 'Export packaged workbook')) {
+                $createNewTwbx = $true
+            }
+        }
+
+        if ($createNewTwbx) {
+            [System.IO.FileStream]$fileStream = $null
+            [System.IO.Compression.ZipArchive]$zip = $null
+            try {
+                $fileStream = New-Object System.IO.FileStream -ArgumentList $Path, ([System.IO.FileMode]::CreateNew), ([System.IO.FileAccess]::ReadWrite), ([System.IO.FileShare]::None)
+                $zip = New-Object System.IO.Compression.ZipArchive -ArgumentList $fileStream, ([System.IO.Compression.ZipArchiveMode]::Update)
+
+                $entry = $zip.CreateEntry($entryName, ([System.IO.Compression.CompressionLevel]::Optimal))
+                [System.IO.Stream]$entryStream = $null
+                try {
+                    $entryStream = $entry.Open()
+                    $WorkbookXml.Save($entryStream)
+                }
+                finally {
+                    if ($entryStream) {
+                        $entryStream.Dispose()
+                    }
+                }
+            }
+            finally {
+                if ($zip) {
+                    $zip.Dispose()
+                }
+                if ($fileStream) {
+                    $fileStream.Dispose()
+                }
+            }
         }
     }
 
@@ -126,309 +214,7 @@ function Get-TableauDatasourceLiveFile {
     }
 }
 
-function Update-TableauWorkbookFromXml {
-    <#
-    .SYNOPSIS
-        Exports the workbook XML to a TWB or TWBX file.
-
-    .PARAMETER Path
-        The literal file path to export to.
-
-    .PARAMETER WorkbookXml
-        The workbook XML to export.
-
-    .PARAMETER Update
-        Whether to update the TWB inside the destination TWBX file
-        if the destination file exists.
-
-    .PARAMETER Force
-        Whether to overwrite the destination TWBX file if it exists.
-        By default, you will be prompted whether to overwrite any
-        existing file.
-
-    .NOTES
-        tbd
-    #>
-        [CmdletBinding(
-            SupportsShouldProcess=$true
-        )]
-        param(
-            [Parameter(
-                Position=0,
-                Mandatory=$true
-            )]
-            [string]$Path,
-
-            [Parameter(
-                Position=1,
-                Mandatory=$true,
-                ValueFromPipeline=$true
-            )]
-            [xml]$WorkbookXml,
-
-            [switch]$Update,
-            [switch]$Force
-        )
-
-        begin {
-            $originalCurrentDirectory = [System.Environment]::CurrentDirectory
-
-            # System.IO.Compression.FileSystem requires at least .NET 4.5
-            [System.Reflection.Assembly]::LoadWithPartialName("System.IO.Compression") | Out-Null
-        }
-
-        process {
-            [System.Environment]::CurrentDirectory = (Get-Location).Path
-            $entryName = [System.IO.Path]::GetFileNameWithoutExtension($Path) + '.twb'
-            $createNewTwbx = $false
-
-            if (Test-Path $Path) {
-                if ($Update -or $Force -or $PSCmdlet.ShouldContinue('Overwrite existing file?', 'Confirm')) {
-                    if ($Update) {
-                        if ($PSCmdlet.ShouldProcess($Path, 'Update TWB in packaged workbook')) {
-
-                            [System.IO.FileStream]$fileStream = $null
-                            [System.IO.Compression.ZipArchive]$zip = $null
-                            try {
-                                $fileStream = New-Object System.IO.FileStream -ArgumentList $Path, ([System.IO.FileMode]::Open), ([System.IO.FileAccess]::ReadWrite), ([System.IO.FileShare]::Read)
-                                $zip = New-Object System.IO.Compression.ZipArchive -ArgumentList $fileStream, ([System.IO.Compression.ZipArchiveMode]::Update)
-
-                                # Locate the existing TWB entry and remove it.
-                                $entry = $zip.Entries |
-                                    Where-Object {
-                                        # Look for a .twb file at the root level of the archive.
-                                        $_.FullName -eq $_.Name -and ([System.IO.Path]::GetExtension($_.Name)) -eq '.twb'
-                                    } |
-                                    Select-Object -First 1
-                                if ($entry) {
-                                    $entry.Delete()
-                                }
-
-                                $entry = $zip.CreateEntry($entryName, ([System.IO.Compression.CompressionLevel]::Optimal))
-                                [System.IO.Stream]$entryStream = $null
-                                try {
-                                    $entryStream = $entry.Open()
-                                    $WorkbookXml.Save($entryStream)
-                                }
-                                finally {
-                                    if ($entryStream) {
-                                        $entryStream.Dispose()
-                                    }
-                                }
-                            }
-                            finally {
-                                if ($zip) {
-                                    $zip.Dispose()
-                                }
-                                if ($fileStream) {
-                                    $fileStream.Dispose()
-                                }
-                            }
-                        }
-                    }
-                    else {
-                        if ($PSCmdlet.ShouldProcess($Path, 'Replace existing packaged workbook')) {
-                            # delete existing TWBX
-                            Remove-Item $Path -ErrorAction Stop #TODO: Figure out how to pass WhatIf and Confirm to this
-
-                            $createNewTwbx = $true
-                        }
-                    }
-                }
-            }
-            else {
-                if ($PSCmdlet.ShouldProcess($Path, 'Export packaged workbook')) {
-                    $createNewTwbx = $true
-                }
-            }
-
-            if ($createNewTwbx) {
-                [System.IO.FileStream]$fileStream = $null
-                [System.IO.Compression.ZipArchive]$zip = $null
-                try {
-                    $fileStream = New-Object System.IO.FileStream -ArgumentList $Path, ([System.IO.FileMode]::CreateNew), ([System.IO.FileAccess]::ReadWrite), ([System.IO.FileShare]::None)
-                    $zip = New-Object System.IO.Compression.ZipArchive -ArgumentList $fileStream, ([System.IO.Compression.ZipArchiveMode]::Update)
-
-                    $entry = $zip.CreateEntry($entryName, ([System.IO.Compression.CompressionLevel]::Optimal))
-                    [System.IO.Stream]$entryStream = $null
-                    try {
-                        $entryStream = $entry.Open()
-                        $WorkbookXml.Save($entryStream)
-                    }
-                    finally {
-                        if ($entryStream) {
-                            $entryStream.Dispose()
-                        }
-                    }
-                }
-                finally {
-                    if ($zip) {
-                        $zip.Dispose()
-                    }
-                    if ($fileStream) {
-                        $fileStream.Dispose()
-                    }
-                }
-            }
-        }
-
-        end {
-            [System.Environment]::CurrentDirectory = $originalCurrentDirectory
-        }
-    }
-
-function Update-TableauDatasourceFromLive {
-        <#
-        .SYNOPSIS
-            Exports the workbook XML to a TWB or TWBX file.
-
-        .PARAMETER Path
-            The literal file path to export to.
-
-        .PARAMETER WorkbookXml
-            The workbook XML to export.
-
-        .PARAMETER Update
-            Whether to update the TWB inside the destination TWBX file
-            if the destination file exists.
-
-        .PARAMETER Force
-            Whether to overwrite the destination TWBX file if it exists.
-            By default, you will be prompted whether to overwrite any
-            existing file.
-
-        .NOTES
-            tbd
-        #>
-            [CmdletBinding(
-                SupportsShouldProcess=$true
-            )]
-            param(
-                [Parameter(
-                    Position=0,
-                    Mandatory=$true
-                )]
-                [string]$Path,
-
-                [Parameter(
-                    Position=1,
-                    Mandatory=$true,
-                    ValueFromPipeline=$true
-                )]
-                [xml]$WorkbookXml,
-
-                [switch]$Update,
-                [switch]$Force
-            )
-
-            begin {
-                $originalCurrentDirectory = [System.Environment]::CurrentDirectory
-
-                # System.IO.Compression.FileSystem requires at least .NET 4.5
-                [System.Reflection.Assembly]::LoadWithPartialName("System.IO.Compression") | Out-Null
-            }
-
-            process {
-                [System.Environment]::CurrentDirectory = (Get-Location).Path
-                $entryName = [System.IO.Path]::GetFileNameWithoutExtension($Path) + '.twb'
-                $createNewTwbx = $false
-
-                if (Test-Path $Path) {
-                    if ($Update -or $Force -or $PSCmdlet.ShouldContinue('Overwrite existing file?', 'Confirm')) {
-                        if ($Update) {
-                            if ($PSCmdlet.ShouldProcess($Path, 'Update TWB in packaged workbook')) {
-
-                                [System.IO.FileStream]$fileStream = $null
-                                [System.IO.Compression.ZipArchive]$zip = $null
-                                try {
-                                    $fileStream = New-Object System.IO.FileStream -ArgumentList $Path, ([System.IO.FileMode]::Open), ([System.IO.FileAccess]::ReadWrite), ([System.IO.FileShare]::Read)
-                                    $zip = New-Object System.IO.Compression.ZipArchive -ArgumentList $fileStream, ([System.IO.Compression.ZipArchiveMode]::Update)
-
-                                    # Locate the existing TWB entry and remove it.
-                                    $entry = $zip.Entries |
-                                        Where-Object {
-                                            # Look for a .twb file at the root level of the archive.
-                                            $_.FullName -eq $_.Name -and ([System.IO.Path]::GetExtension($_.Name)) -eq '.twb'
-                                        } |
-                                        Select-Object -First 1
-                                    if ($entry) {
-                                        $entry.Delete()
-                                    }
-
-                                    $entry = $zip.CreateEntry($entryName, ([System.IO.Compression.CompressionLevel]::Optimal))
-                                    [System.IO.Stream]$entryStream = $null
-                                    try {
-                                        $entryStream = $entry.Open()
-                                        $WorkbookXml.Save($entryStream)
-                                    }
-                                    finally {
-                                        if ($entryStream) {
-                                            $entryStream.Dispose()
-                                        }
-                                    }
-                                }
-                                finally {
-                                    if ($zip) {
-                                        $zip.Dispose()
-                                    }
-                                    if ($fileStream) {
-                                        $fileStream.Dispose()
-                                    }
-                                }
-                            }
-                        }
-                        else {
-                            if ($PSCmdlet.ShouldProcess($Path, 'Replace existing packaged workbook')) {
-                                # delete existing TWBX
-                                Remove-Item $Path -ErrorAction Stop #TODO: Figure out how to pass WhatIf and Confirm to this
-
-                                $createNewTwbx = $true
-                            }
-                        }
-                    }
-                }
-                else {
-                    if ($PSCmdlet.ShouldProcess($Path, 'Export packaged workbook')) {
-                        $createNewTwbx = $true
-                    }
-                }
-
-                if ($createNewTwbx) {
-                    [System.IO.FileStream]$fileStream = $null
-                    [System.IO.Compression.ZipArchive]$zip = $null
-                    try {
-                        $fileStream = New-Object System.IO.FileStream -ArgumentList $Path, ([System.IO.FileMode]::CreateNew), ([System.IO.FileAccess]::ReadWrite), ([System.IO.FileShare]::None)
-                        $zip = New-Object System.IO.Compression.ZipArchive -ArgumentList $fileStream, ([System.IO.Compression.ZipArchiveMode]::Update)
-
-                        $entry = $zip.CreateEntry($entryName, ([System.IO.Compression.CompressionLevel]::Optimal))
-                        [System.IO.Stream]$entryStream = $null
-                        try {
-                            $entryStream = $entry.Open()
-                            $WorkbookXml.Save($entryStream)
-                        }
-                        finally {
-                            if ($entryStream) {
-                                $entryStream.Dispose()
-                            }
-                        }
-                    }
-                    finally {
-                        if ($zip) {
-                            $zip.Dispose()
-                        }
-                        if ($fileStream) {
-                            $fileStream.Dispose()
-                        }
-                    }
-                }
-            }
-
-            end {
-                [System.Environment]::CurrentDirectory = $originalCurrentDirectory
-            }
-        }
-
-function Get-TableauFilesObject {
+function Get-TableauDocumentObject {
 <#
 .SYNOPSIS
     Gets metadata information for local workbook(s).
@@ -478,7 +264,7 @@ function Get-TableauFilesObject {
         }
 
         if ($needXml) {
-            $WorkbookXml = $paths | ForEach-Object { Get-TableauXml $_ }
+            $WorkbookXml = $paths | ForEach-Object { Get-TableauDocumentXml $_ }
         }
 
         $i = 0
@@ -567,7 +353,7 @@ function Get-TableauFilesObject {
 
 # Tests for the magic zip file header.
 # Inspired by http://stackoverflow.com/a/1887113/31308
-function Test-ZipFile([string]$path) {
+function Test-ZipFile($path) {
     try {
         $stream = New-Object System.IO.StreamReader -ArgumentList @($path)
         $reader = New-Object System.IO.BinaryReader -ArgumentList @($stream.BaseStream)
@@ -590,12 +376,9 @@ function Test-ZipFile([string]$path) {
             $stream.Dispose();
         }
     }
-
     return $false;
 }
 
-Export-ModuleMember -Function Get-TableauWorkbookXml
-Export-ModuleMember -Function Get-TableauDatasourceLiveFile
-Export-ModuleMember -Function Update-TableauWorkbookFromXml
-Export-ModuleMember -Function Update-TableauDatasourceFromLive
-Export-ModuleMember -Function Get-TableauFilesObject
+Export-ModuleMember -Function Get-TableauDocumentXml
+Export-ModuleMember -Function Update-TableauDocumentFromXml
+Export-ModuleMember -Function Get-TableauDocumentObject
