@@ -25,7 +25,7 @@ function Get-TableauWorkbookXml {
         [System.Environment]::CurrentDirectory = (Get-Location).Path
         $extension = [System.IO.Path]::GetExtension($Path)
         if ($extension -eq ".twb") {
-            return [xml](Get-Content -LiteralPath $Path)
+            return (Get-Content -LiteralPath $Path)
         }
         elseif ($extension -eq ".twbx") {
             $archiveStream = $null
@@ -38,7 +38,7 @@ function Get-TableauWorkbookXml {
                 $twbEntry = ($archive.Entries | Where-Object { $_.FullName -eq $_.Name -and [System.IO.Path]::GetExtension($_.Name) -eq ".twb" })[0]
                 $reader = New-Object System.IO.StreamReader $twbEntry.Open()
 
-                [xml]$xml = $reader.ReadToEnd()
+                $xml = $reader.ReadToEnd()
                 return $xml
             }
             finally {
@@ -88,7 +88,7 @@ function Get-TableauDatasourceLiveFile {
         [System.Environment]::CurrentDirectory = (Get-Location).Path
         $extension = [System.IO.Path]::GetExtension($Path)
         if ($extension -eq ".tds") {
-            return [xml](Get-Content -LiteralPath $Path)
+            return (Get-Content -LiteralPath $Path)
         }
         elseif ($extension -eq ".tdsx") {
             $archiveStream = $null
@@ -428,7 +428,7 @@ function Update-TableauDatasourceFromLive {
             }
         }
 
-function Get-TableauFilesProperties {
+function Get-TableauFilesObject {
 <#
 .SYNOPSIS
     Gets metadata information for local workbook(s).
@@ -500,7 +500,7 @@ function Get-TableauFilesProperties {
                 ForEach-Object {
                     # TODO: This really slows down the whole cmdlet. Find a way to make the dashboards' Worksheets property lazy evaluated.
                     $dashboardWorksheets = @()
-                    $_ | Select-Xml './zones//zone' | Select-Object -ExpandProperty Node |
+                    $_ | Select-Xml './zones//zone' | Selec -ExpandProperty Node |
                         # Assume any zone with a @name but not a @type is a worksheet zone.
                         Where-Object { $null -eq $_.Attributes['type'] -and $null -ne $_.Attributes['name'] } |
                         ForEach-Object {
@@ -598,4 +598,4 @@ Export-ModuleMember -Function Get-TableauWorkbookXml
 Export-ModuleMember -Function Get-TableauDatasourceLiveFile
 Export-ModuleMember -Function Update-TableauWorkbookFromXml
 Export-ModuleMember -Function Update-TableauDatasourceFromLive
-Export-ModuleMember -Function Get-TableauFilesProperties
+Export-ModuleMember -Function Get-TableauFilesObject

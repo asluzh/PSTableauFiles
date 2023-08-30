@@ -5,7 +5,7 @@ BeforeDiscovery {
     $script:ModuleManifest = "$ModuleDir/$ModuleName.psd1"
     $script:CodeFiles = Get-ChildItem -Path "$ModuleDir" -Filter *.ps1 -Recurse
     $script:ScriptAnalyzerRules = Get-ScriptAnalyzerRule
-    $script:AppliedRules = Invoke-ScriptAnalyzer -Path $ModuleFile -ExcludeRule PSUseBOMForUnicodeEncodedFile, PSReviewUnusedParameter
+    $script:ScriptAnalyzerResults = Invoke-ScriptAnalyzer -Path $ModuleFile -ExcludeRule PSUseBOMForUnicodeEncodedFile,PSReviewUnusedParameter
 }
 
 Describe "Module Structure and Validation Tests" -Tag Unit -WarningAction SilentlyContinue {
@@ -28,9 +28,9 @@ Describe "Module Structure and Validation Tests" -Tag Unit -WarningAction Silent
 
     Context "Code Validation <file>" -ForEach $CodeFiles {
         It "<_> is valid PowerShell code" {
-            $psFile = Get-Content -Path $_.FullName -ErrorAction Stop
+            $psFile = $_
             $errors = $null
-            $null = [System.Management.Automation.PSParser]::Tokenize($psFile, [ref]$errors)
+            [void][System.Management.Automation.Language.Parser]::ParseFile($psFile, [ref]$null, [ref]$errors)
             $errors.Count | Should -Be 0
         }
     }
@@ -42,10 +42,13 @@ Describe "Module Structure and Validation Tests" -Tag Unit -WarningAction Silent
     }
 
     Context "Testing module <ModuleName> against PSSA rules" -ForEach $ScriptAnalyzerRules {
-        It "should pass <_>" {
-            If ($AppliedRules.RuleName -contains $_) {
-                $AppliedRules | Where-Object RuleName -eq $rule -OutVariable failures
-                $failures.Count | Should -Be 0
+        BeforeAll {
+            Get-ScriptAnalyzerRule | Where-Object RuleName -eq $_ | Select-Object -ExpandProperty CommonName -OutVariable commonName
+        }
+        It "should pass rule '<commonName>'" {
+            If ($ScriptAnalyzerResults.RuleName -contains $_) {
+                $ScriptAnalyzerResults | Where-Object RuleName -eq $_ | Select-Object Message -OutVariable err
+                $err.Message | Should -BeNullOrEmpty
             }
         }
     }
