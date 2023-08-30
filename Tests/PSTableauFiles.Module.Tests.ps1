@@ -3,12 +3,13 @@ BeforeDiscovery {
     $script:ModuleName = (Split-Path -Leaf $PSCommandPath) -Replace ".Module.Tests.ps1"
     $script:ModuleFile =     "$ModuleDir/$ModuleName.psm1"
     $script:ModuleManifest = "$ModuleDir/$ModuleName.psd1"
-    $script:CodeFiles = Get-ChildItem -Path "$ModuleDir" -Filter *.ps1 -Recurse
-    $script:ScriptAnalyzerRules = Get-ScriptAnalyzerRule
-    $script:ScriptAnalyzerResults = Invoke-ScriptAnalyzer -Path $ModuleFile -ExcludeRule PSUseBOMForUnicodeEncodedFile,PSReviewUnusedParameter
 }
 
-Describe "Module Structure and Validation Tests" -Tag Unit -WarningAction SilentlyContinue {
+Describe "Module Structure and Validation Tests" -Tag Module -WarningAction SilentlyContinue {
+    $CodeFiles = Get-ChildItem -Path "$ModuleDir" -Filter *.ps1 -Recurse
+    $ScriptAnalyzerRules = Get-ScriptAnalyzerRule
+    $ScriptAnalyzerResults = Invoke-ScriptAnalyzer -Path $ModuleFile -ExcludeRule PSUseBOMForUnicodeEncodedFile,PSReviewUnusedParameter
+
     Context "Module File <ModuleFile>" {
         It "has the root module <ModuleName>" {
             "$ModuleFile" | Should -Exist

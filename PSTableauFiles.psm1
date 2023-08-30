@@ -3,10 +3,10 @@
 function Get-TableauDocumentXml {
 <#
 .SYNOPSIS
-    Gets the workbook/datasource XML from a TWBX/TDSX file.
+    Gets the workbook/datasource XML from a TWB(X)/TDS(X) file.
 
 .NOTES
-    tbd
+    If the file is not compressed, the original contents are returned
 #>
     [CmdletBinding()]
     param(
@@ -24,37 +24,42 @@ function Get-TableauDocumentXml {
     process {
         [System.Environment]::CurrentDirectory = (Get-Location).Path
         $extension = [System.IO.Path]::GetExtension($Path)
-        if ($extension -eq ".twb") {
+        if ($extension -eq ".twb" -or $extension -eq ".tds") {
             return (Get-Content -LiteralPath $Path)
         }
-        elseif ($extension -eq ".twbx") {
+        elseif ($extension -eq ".twbx" -or $extension -eq ".tdsx") {
             $archiveStream = $null
             $archive = $null
             $reader = $null
 
-            try {
-                $archiveStream = New-Object System.IO.FileStream($Path, [System.IO.FileMode]::Open)
-                $archive = New-Object System.IO.Compression.ZipArchive($archiveStream)
-                $twbEntry = ($archive.Entries | Where-Object { $_.FullName -eq $_.Name -and [System.IO.Path]::GetExtension($_.Name) -eq ".twb" })[0]
-                $reader = New-Object System.IO.StreamReader $twbEntry.Open()
-
-                $xml = $reader.ReadToEnd()
-                return $xml
-            }
-            finally {
-                if ($reader) {
-                    $reader.Dispose()
+            if (Test-Path $Path) {
+                try {
+                    $archiveStream = New-Object System.IO.FileStream($Path, [System.IO.FileMode]::Open)
+                    $archive = New-Object System.IO.Compression.ZipArchive($archiveStream)
+                    $xmlFiles = ($archive.Entries | Where-Object { $_.FullName -eq $_.Name -and ([System.IO.Path]::GetExtension($_.Name) -eq ".twb" -or [System.IO.Path]::GetExtension($_.Name) -eq ".tds") })
+                    if ($null -eq $xmlFiles) {
+                        throw "Main XML file not found."
+                    }
+                    $reader = New-Object System.IO.StreamReader $xmlFiles[0].Open()
+                    $xml = $reader.ReadToEnd()
+                    return $xml
+                } finally {
+                    if ($reader) {
+                        $reader.Dispose()
+                    }
+                    if ($archive) {
+                        $archive.Dispose()
+                    }
+                    if ($archiveStream) {
+                        $archiveStream.Dispose()
+                    }
                 }
-                if ($archive) {
-                    $archive.Dispose()
-                }
-                if ($archiveStream) {
-                    $archiveStream.Dispose()
-                }
+            } else {
+                throw "File not found."
             }
         }
         else {
-            throw "Unknown file type. Expected a TWB or TWBX file extension."
+            throw "Unknown file type. Tableau document file types are expected."
         }
     }
 
