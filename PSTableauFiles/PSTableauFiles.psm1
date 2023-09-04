@@ -71,12 +71,14 @@ function Get-TableauDocumentXml {
 function Update-TableauDocumentFromXml {
 <#
 .SYNOPSIS
-    Exports the workbook XML to a TWB or TWBX file.
+    Inserts the workbook XML into a TWBX file
+    or
+    Inserts the datasource XML into a TDSX file.
 
 .PARAMETER Path
     The literal file path to export to.
 
-.PARAMETER WorkbookXml
+.PARAMETER DocumentXml
     The workbook XML to export.
 
 .PARAMETER Update
@@ -91,23 +93,19 @@ function Update-TableauDocumentFromXml {
 .NOTES
     tbd
 #>
-    [CmdletBinding(
-        SupportsShouldProcess=$true
-    )]
+    [CmdletBinding(SupportsShouldProcess=$true)]
     param(
         [Parameter(
             Position=0,
             Mandatory=$true
         )]
         [string]$Path,
-
         [Parameter(
             Position=1,
             Mandatory=$true,
             ValueFromPipeline=$true
         )]
-        [xml]$WorkbookXml,
-
+        [xml]$DocumentXml,
         [switch]$Update,
         [switch]$Force
     )
@@ -150,7 +148,7 @@ function Update-TableauDocumentFromXml {
                             [System.IO.Stream]$entryStream = $null
                             try {
                                 $entryStream = $entry.Open()
-                                $WorkbookXml.Save($entryStream)
+                                $DocumentXml.Save($entryStream)
                             }
                             finally {
                                 if ($entryStream) {
@@ -172,7 +170,6 @@ function Update-TableauDocumentFromXml {
                     if ($PSCmdlet.ShouldProcess($Path, 'Replace existing packaged workbook')) {
                         # delete existing TWBX
                         Remove-Item $Path -ErrorAction Stop #TODO: Figure out how to pass WhatIf and Confirm to this
-
                         $createNewTwbx = $true
                     }
                 }
@@ -195,7 +192,7 @@ function Update-TableauDocumentFromXml {
                 [System.IO.Stream]$entryStream = $null
                 try {
                     $entryStream = $entry.Open()
-                    $WorkbookXml.Save($entryStream)
+                    $DocumentXml.Save($entryStream)
                 }
                 finally {
                     if ($entryStream) {
@@ -236,7 +233,7 @@ function Get-TableauDocumentObject {
             Position = 0,
             ValueFromPipeline = $true)]
         [ValidateNotNullOrEmpty()]
-        [xml[]]$WorkbookXml,
+        [xml[]]$DocumentXml,
 
         [Parameter(
             Mandatory = $true,
@@ -269,11 +266,11 @@ function Get-TableauDocumentObject {
         }
 
         if ($needXml) {
-            $WorkbookXml = $paths | ForEach-Object { Get-TableauDocumentXml $_ }
+            $DocumentXml = $paths | ForEach-Object { Get-TableauDocumentXml $_ }
         }
 
         $i = 0
-        foreach ($xml in $WorkbookXml) {
+        foreach ($xml in $DocumentXml) {
             $worksheets = @()
             $xml | Select-Xml '/workbook/worksheets/worksheet' | Select-Object -ExpandProperty Node |
                 ForEach-Object {
@@ -343,7 +340,7 @@ function Get-TableauDocumentObject {
                 "DataSources" = $dataSources;
                 "Worksheets" = $worksheets;
                 "Dashboards" = $dashboards;
-                "WorkbookXml" = $xml;
+                "DocumentXml" = $xml;
             }
 
             if ($paths) {

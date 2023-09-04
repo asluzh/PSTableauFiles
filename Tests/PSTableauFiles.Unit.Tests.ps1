@@ -1,6 +1,6 @@
 BeforeDiscovery {
     Get-Module PSTableauFiles | Remove-Module -Force
-    Import-Module ./PSTableauFiles.psm1 -Force
+    Import-Module ./PSTableauFiles/PSTableauFiles.psm1 -Force
 }
 
 Describe "Unit Tests for Get-TableauDocumentXml" -Tag Unit {
