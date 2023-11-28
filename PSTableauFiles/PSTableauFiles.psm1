@@ -3,17 +3,20 @@
 function Get-TableauDocumentXml {
 <#
 .SYNOPSIS
-    Gets the workbook/datasource XML from a TWB(X)/TDS(X) file.
+Get Tableau Document Xml
+
+.DESCRIPTION
+Returns the workbook/datasource XML from a TWB(X)/TDS(X) file.
+
+.PARAMETER Path
+The filename including pathname to the Tableau document.
 
 .NOTES
-    If the file is not compressed, the original contents are returned
+If the file is not compressed, the original contents are returned.
 #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
-        [string]$Path
-    )
-
+Param(
+    [Parameter(Mandatory,ValueFromPipeline)] [string]$Path
+)
     begin {
         $originalCurrentDirectory = [System.Environment]::CurrentDirectory
 
@@ -71,48 +74,37 @@ function Get-TableauDocumentXml {
 function Update-TableauDocumentFromXml {
 <#
 .SYNOPSIS
-    Inserts the workbook XML into a TWBX file
-    or
-    Inserts the datasource XML into a TDSX file.
+Update Tableau Document File XML
+
+.DESCRIPTION
+Inserts the workbook XML into a TWBX file.
+or
+Inserts the datasource XML into a TDSX file.
 
 .PARAMETER Path
-    The literal file path to export to.
+The literal file path to export to.
 
 .PARAMETER DocumentXml
-    The workbook XML to export.
+The workbook XML to export.
 
 .PARAMETER Update
-    Whether to update the TWB inside the destination TWBX file
-    if the destination file exists.
+Whether to update the TWB inside the destination TWBX file
+if the destination file exists.
 
 .PARAMETER Force
-    Whether to overwrite the destination TWBX file if it exists.
-    By default, you will be prompted whether to overwrite any
-    existing file.
-
-.NOTES
-    tbd
+Whether to overwrite the destination TWBX file if it exists.
+By default, you will be prompted whether to overwrite any
+existing file.
 #>
-    [CmdletBinding(SupportsShouldProcess=$true)]
-    param(
-        [Parameter(
-            Position=0,
-            Mandatory=$true
-        )]
-        [string]$Path,
-        [Parameter(
-            Position=1,
-            Mandatory=$true,
-            ValueFromPipeline=$true
-        )]
-        [xml]$DocumentXml,
-        [switch]$Update,
-        [switch]$Force
-    )
-
+[CmdletBinding(SupportsShouldProcess)]
+Param(
+    [Parameter(Mandatory,Position=0)] [string]$Path,
+    [Parameter(Mandatory,Position=1,ValueFromPipeline)] [xml]$DocumentXml,
+    [Parameter()] [switch]$Update,
+    [Parameter()] [switch]$Force
+)
     begin {
         $originalCurrentDirectory = [System.Environment]::CurrentDirectory
-
         # System.IO.Compression.FileSystem requires at least .NET 4.5
         [System.Reflection.Assembly]::LoadWithPartialName("System.IO.Compression") | Out-Null
     }
@@ -219,41 +211,38 @@ function Update-TableauDocumentFromXml {
 function Get-TableauDocumentObject {
 <#
 .SYNOPSIS
-    Gets metadata information for local workbook(s).
+Get Tableau Document Object
 
-.NOTES
-    tbd
+.DESCRIPTION
+Returns metadata information for local workbook(s).
 #>
+Param(
+    [Parameter(
+        Mandatory = $true,
+        ParameterSetName = "Xml",
+        Position = 0,
+        ValueFromPipeline = $true)]
+    [ValidateNotNullOrEmpty()]
+    [xml[]]$DocumentXml,
 
-    [CmdletBinding()]
-    param(
-        [Parameter(
-            Mandatory = $true,
-            ParameterSetName = "Xml",
-            Position = 0,
-            ValueFromPipeline = $true)]
-        [ValidateNotNullOrEmpty()]
-        [xml[]]$DocumentXml,
+    [Parameter(
+        Mandatory = $true,
+        ParameterSetName = "Path",
+        Position = 0,
+        ValueFromPipeline = $true,
+        ValueFromPipelineByPropertyName = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string[]]$Path,
 
-        [Parameter(
-            Mandatory = $true,
-            ParameterSetName = "Path",
-            Position = 0,
-            ValueFromPipeline = $true,
-            ValueFromPipelineByPropertyName = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string[]]$Path,
-
-        [Parameter(
-            Mandatory = $true,
-            ParameterSetName = "LiteralPath",
-            ValueFromPipeline = $true,
-            ValueFromPipelineByPropertyName = $true)]
-        [Alias("FullName")]
-        [ValidateNotNullOrEmpty()]
-        [string[]]$LiteralPath
-    )
-
+    [Parameter(
+        Mandatory = $true,
+        ParameterSetName = "LiteralPath",
+        ValueFromPipeline = $true,
+        ValueFromPipelineByPropertyName = $true)]
+    [Alias("FullName")]
+    [ValidateNotNullOrEmpty()]
+    [string[]]$LiteralPath
+)
     process {
         $needXml = $false
         if ($PSCmdlet.ParameterSetName -eq "Path") {
@@ -380,7 +369,3 @@ function Test-ZipFile($path) {
     }
     return $false;
 }
-
-Export-ModuleMember -Function Get-TableauDocumentXml
-Export-ModuleMember -Function Update-TableauDocumentFromXml
-Export-ModuleMember -Function Get-TableauDocumentObject

@@ -23,6 +23,12 @@ GUID = '868d1e0f-b6e8-4d56-9c3f-093744f13404'
 # Author of this module
 Author = 'Andrey Sluzhivoy'
 
+# Company or vendor of this module
+# CompanyName = 'D ONE'
+
+# Copyright statement for this module
+# Copyright = '(c) Andrey Sluzhivoy. All rights reserved.'
+
 # Description of the functionality provided by this module
 Description = 'This PowerShell module facilitates manipulating Tableau files for automation tasks.'
 
@@ -48,7 +54,9 @@ PowerShellVersion = '5.1'
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @('Get-TableauDocumentXml', 'Update-TableauDocumentFromXml', 'Get-TableauDocumentObject')
+FunctionsToExport = @(
+'Get-TableauDocumentXml', 'Update-TableauDocumentFromXml', 'Get-TableauDocumentObject'
+)
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 # CmdletsToExport = @()
@@ -72,13 +80,13 @@ FileList = @('PSTableauFiles.psm1', 'PSTableauFiles.psd1')
 PrivateData = @{
     PSData = @{
         # Tags applied to this module. These help with module discovery in online galleries.
-        # Tags = @()
+        Tags = @('tableau','xml')
 
         # A URL to the license for this module.
-        # LicenseUri = ''
+        LicenseUri = 'https://github.com/asluzh/PSTableauFiles/blob/main/LICENSE'
 
         # A URL to the main website for this project.
-        # ProjectUri = ''
+        ProjectUri = 'https://github.com/asluzh/PSTableauFiles'
 
         # A URL to an icon representing this module.
         # IconUri = ''

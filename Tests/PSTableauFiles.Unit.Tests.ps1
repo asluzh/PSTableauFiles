@@ -1,6 +1,10 @@
+BeforeAll {
+    Import-Module ./PSTableauFiles -Force
+    # Import-Module Assert
+    # . ./Tests/Test.Functions.ps1
+}
 BeforeDiscovery {
-    Get-Module PSTableauFiles | Remove-Module -Force
-    Import-Module ./PSTableauFiles/PSTableauFiles.psm1 -Force
+    #     $script:ConfigFiles = Get-ChildItem -Path "Tests/Config" -Filter "test_*.json" -Recurse
 }
 
 Describe "Unit Tests for Get-TableauDocumentXml" -Tag Unit {
