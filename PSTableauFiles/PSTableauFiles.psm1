@@ -1,47 +1,43 @@
-# original script here https://joshua.poehls.me/2013/tableaukit-a-powershell-module-for-tableau/
+# System.IO.Compression.FileSystem requires at least .NET 4.5
+# [System.Reflection.Assembly]::LoadWithPartialName("System.IO.Compression") | Out-Null
 
-function Get-TableauDocumentXml {
+function Get-TableauFileXml {
 <#
 .SYNOPSIS
 Get Tableau Document Xml
 
 .DESCRIPTION
 Returns the workbook/datasource XML from a TWB(X)/TDS(X) file.
+If the file is not compressed, the original XML contents are returned.
 
 .PARAMETER Path
 The filename including pathname to the Tableau document.
-
-.NOTES
-If the file is not compressed, the original contents are returned.
 #>
 Param(
-    [Parameter(Mandatory,ValueFromPipeline)] [string]$Path
+    [Parameter(Mandatory,ValueFromPipelineByPropertyName)] [string]$Path
 )
     begin {
-        $originalCurrentDirectory = [System.Environment]::CurrentDirectory
-
-        # System.IO.Compression.FileSystem requires at least .NET 4.5
-        [System.Reflection.Assembly]::LoadWithPartialName("System.IO.Compression") | Out-Null
     }
-
     process {
-        [System.Environment]::CurrentDirectory = (Get-Location).Path
-        $extension = [System.IO.Path]::GetExtension($Path)
-        if ($extension -eq ".twb" -or $extension -eq ".tds") {
-            return (Get-Content -LiteralPath $Path)
-        }
-        elseif ($extension -eq ".twbx" -or $extension -eq ".tdsx") {
-            $archiveStream = $null
-            $archive = $null
-            $reader = $null
-
-            if (Test-Path $Path) {
+        if (Test-Path -LiteralPath $Path) {
+            $fileItem = Get-Item -LiteralPath $Path
+            $fileType = $fileItem.Extension.Substring(1)
+            if ($fileType -eq "twb" -or $fileType -eq "tds") {
+                return (Get-Content -LiteralPath $Path)
+            }
+            elseif ($fileType -eq "twbx" -or $fileType -eq "tdsx") {
+                $fileStream = $null
+                $zipArchive = $null
+                $reader = $null
                 try {
-                    $archiveStream = New-Object System.IO.FileStream($Path, [System.IO.FileMode]::Open)
-                    $archive = New-Object System.IO.Compression.ZipArchive($archiveStream)
-                    $xmlFiles = ($archive.Entries | Where-Object { $_.FullName -eq $_.Name -and ([System.IO.Path]::GetExtension($_.Name) -eq ".twb" -or [System.IO.Path]::GetExtension($_.Name) -eq ".tds") })
+                    $fileStream = New-Object System.IO.FileStream($Path, [System.IO.FileMode]::Open)
+                    $zipArchive = New-Object System.IO.Compression.ZipArchive($fileStream)
+                    # TODO the main file should be on the root level of the archive
+                    $xmlFiles = $zipArchive.Entries | Where-Object {
+                        $_.FullName -eq $_.Name -and ([System.IO.Path]::GetExtension($_.Name) -in @(".twb",".tds"))
+                    }
                     if ($null -eq $xmlFiles) {
-                        throw "Main XML file not found."
+                        throw [System.IO.FileNotFoundException] "Main XML file not found."
                     }
                     $reader = New-Object System.IO.StreamReader $xmlFiles[0].Open()
                     $xml = $reader.ReadToEnd()
@@ -50,130 +46,107 @@ Param(
                     if ($reader) {
                         $reader.Dispose()
                     }
-                    if ($archive) {
-                        $archive.Dispose()
+                    if ($zipArchive) {
+                        $zipArchive.Dispose()
                     }
-                    if ($archiveStream) {
-                        $archiveStream.Dispose()
+                    if ($fileStream) {
+                        $fileStream.Dispose()
                     }
                 }
             } else {
-                throw "File not found."
+                throw [System.IO.FileFormatException] "Unknown file type. Tableau document file types are expected."
             }
-        }
-        else {
-            throw "Unknown file type. Tableau document file types are expected."
+        } else {
+            throw [System.IO.FileNotFoundException] "File not found."
         }
     }
-
     end {
-        [System.Environment]::CurrentDirectory = $originalCurrentDirectory
     }
 }
 
-function Update-TableauDocumentFromXml {
+function Update-TableauFile {
 <#
 .SYNOPSIS
-Update Tableau Document File XML
+Update Tableau File Contents
 
 .DESCRIPTION
-Inserts the workbook XML into a TWBX file.
+Updates the supplied workbook/datasource XML inside the compressed Tableau file.
 or
-Inserts the datasource XML into a TDSX file.
+Updates the original data file inside the compressed Tableau file.
 
 .PARAMETER Path
-The literal file path to export to.
+The literal file path of the compressed Tableau file.
 
 .PARAMETER DocumentXml
-The workbook XML to export.
+(Optional) The workbook/datasource XML for update.
 
-.PARAMETER Update
-Whether to update the TWB inside the destination TWBX file
-if the destination file exists.
-
-.PARAMETER Force
-Whether to overwrite the destination TWBX file if it exists.
-By default, you will be prompted whether to overwrite any
-existing file.
+.PARAMETER DataFile
+(Optional) The file path of the data file(s).
 #>
 [CmdletBinding(SupportsShouldProcess)]
 Param(
-    [Parameter(Mandatory,Position=0)] [string]$Path,
-    [Parameter(Mandatory,Position=1,ValueFromPipeline)] [xml]$DocumentXml,
-    [Parameter()] [switch]$Update,
-    [Parameter()] [switch]$Force
+    [Parameter(Mandatory)] [string]$Path,
+    [Parameter()] [xml]$DocumentXml,
+    [Parameter()] [string[]]$DataFile
 )
     begin {
         $originalCurrentDirectory = [System.Environment]::CurrentDirectory
         # System.IO.Compression.FileSystem requires at least .NET 4.5
         [System.Reflection.Assembly]::LoadWithPartialName("System.IO.Compression") | Out-Null
     }
-
     process {
         [System.Environment]::CurrentDirectory = (Get-Location).Path
         $entryName = [System.IO.Path]::GetFileNameWithoutExtension($Path) + '.twb'
         $createNewTwbx = $false
 
-        if (Test-Path $Path) {
-            if ($Update -or $Force -or $PSCmdlet.ShouldContinue('Overwrite existing file?', 'Confirm')) {
-                if ($Update) {
-                    if ($PSCmdlet.ShouldProcess($Path, 'Update TWB in packaged workbook')) {
+        if (Test-Path $Path) { # -and (Test-TableauZipFile $Path)
+            if ($PSCmdlet.ShouldProcess($Path, 'Update TWB in packaged workbook')) {
 
-                        [System.IO.FileStream]$fileStream = $null
-                        [System.IO.Compression.ZipArchive]$zip = $null
-                        try {
-                            $fileStream = New-Object System.IO.FileStream -ArgumentList $Path, ([System.IO.FileMode]::Open), ([System.IO.FileAccess]::ReadWrite), ([System.IO.FileShare]::Read)
-                            $zip = New-Object System.IO.Compression.ZipArchive -ArgumentList $fileStream, ([System.IO.Compression.ZipArchiveMode]::Update)
+                [System.IO.FileStream]$fileStream = $null
+                [System.IO.Compression.ZipArchive]$zip = $null
+                try {
+                    $fileStream = New-Object System.IO.FileStream -ArgumentList $Path, ([System.IO.FileMode]::Open), ([System.IO.FileAccess]::ReadWrite), ([System.IO.FileShare]::Read)
+                    $zip = New-Object System.IO.Compression.ZipArchive -ArgumentList $fileStream, ([System.IO.Compression.ZipArchiveMode]::Update)
 
-                            # Locate the existing TWB entry and remove it.
-                            $entry = $zip.Entries |
-                                Where-Object {
-                                    # Look for a .twb file at the root level of the archive.
-                                    $_.FullName -eq $_.Name -and ([System.IO.Path]::GetExtension($_.Name)) -eq '.twb'
-                                } |
-                                Select-Object -First 1
-                            if ($entry) {
-                                $entry.Delete()
-                            }
+                    # Locate the existing TWB entry and remove it.
+                    $entry = $zip.Entries |
+                        Where-Object {
+                            # Look for a .twb file at the root level of the archive.
+                            $_.FullName -eq $_.Name -and ([System.IO.Path]::GetExtension($_.Name)) -eq '.twb'
+                        } |
+                        Select-Object -First 1
+                    if ($entry) {
+                        $entry.Delete()
+                    }
 
-                            $entry = $zip.CreateEntry($entryName, ([System.IO.Compression.CompressionLevel]::Optimal))
-                            [System.IO.Stream]$entryStream = $null
-                            try {
-                                $entryStream = $entry.Open()
-                                $DocumentXml.Save($entryStream)
-                            }
-                            finally {
-                                if ($entryStream) {
-                                    $entryStream.Dispose()
-                                }
-                            }
-                        }
-                        finally {
-                            if ($zip) {
-                                $zip.Dispose()
-                            }
-                            if ($fileStream) {
-                                $fileStream.Dispose()
-                            }
+                    $entry = $zip.CreateEntry($entryName, ([System.IO.Compression.CompressionLevel]::Optimal))
+                    [System.IO.Stream]$entryStream = $null
+                    try {
+                        $entryStream = $entry.Open()
+                        $DocumentXml.Save($entryStream)
+                    }
+                    finally {
+                        if ($entryStream) {
+                            $entryStream.Dispose()
                         }
                     }
                 }
-                else {
-                    if ($PSCmdlet.ShouldProcess($Path, 'Replace existing packaged workbook')) {
-                        # delete existing TWBX
-                        Remove-Item $Path -ErrorAction Stop #TODO: Figure out how to pass WhatIf and Confirm to this
-                        $createNewTwbx = $true
+                finally {
+                    if ($zip) {
+                        $zip.Dispose()
+                    }
+                    if ($fileStream) {
+                        $fileStream.Dispose()
                     }
                 }
             }
-        }
-        else {
+        } else { # TODO should throw
             if ($PSCmdlet.ShouldProcess($Path, 'Export packaged workbook')) {
                 $createNewTwbx = $true
             }
         }
 
-        if ($createNewTwbx) {
+        if ($createNewTwbx) { # TODO
             [System.IO.FileStream]$fileStream = $null
             [System.IO.Compression.ZipArchive]$zip = $null
             try {
@@ -202,7 +175,6 @@ Param(
             }
         }
     }
-
     end {
         [System.Environment]::CurrentDirectory = $originalCurrentDirectory
     }
@@ -215,32 +187,27 @@ Get Tableau Document Object
 
 .DESCRIPTION
 Returns metadata information for local workbook(s).
+
+.PARAMETER DocumentXml
+tbd
+
+.PARAMETER Path
+tbd
+
+.PARAMETER LiteralPath
+tbd
+
+.NOTES
+Inspired by https://joshua.poehls.me/2013/tableaukit-a-powershell-module-for-tableau/
 #>
 Param(
-    [Parameter(
-        Mandatory = $true,
-        ParameterSetName = "Xml",
-        Position = 0,
-        ValueFromPipeline = $true)]
-    [ValidateNotNullOrEmpty()]
+    [Parameter(Mandatory,ParameterSetName='Xml',Position=0,ValueFromPipeline)][ValidateNotNullOrEmpty()]
     [xml[]]$DocumentXml,
 
-    [Parameter(
-        Mandatory = $true,
-        ParameterSetName = "Path",
-        Position = 0,
-        ValueFromPipeline = $true,
-        ValueFromPipelineByPropertyName = $true)]
-    [ValidateNotNullOrEmpty()]
+    [Parameter(Mandatory,ParameterSetName='Path',Position=0,ValueFromPipeline,ValueFromPipelineByPropertyName)][ValidateNotNullOrEmpty()]
     [string[]]$Path,
 
-    [Parameter(
-        Mandatory = $true,
-        ParameterSetName = "LiteralPath",
-        ValueFromPipeline = $true,
-        ValueFromPipelineByPropertyName = $true)]
-    [Alias("FullName")]
-    [ValidateNotNullOrEmpty()]
+    [Parameter(Mandatory,ParameterSetName='LiteralPath',ValueFromPipeline,ValueFromPipelineByPropertyName)][Alias('FullName')][ValidateNotNullOrEmpty()]
     [string[]]$LiteralPath
 )
     process {
@@ -342,30 +309,40 @@ Param(
     }
 }
 
-# Tests for the magic zip file header.
-# Inspired by http://stackoverflow.com/a/1887113/31308
-function Test-ZipFile($path) {
+function Test-TableauZipFile {
+<#
+.SYNOPSIS
+Tests for the magic zip file header
+
+.NOTES
+Source http://stackoverflow.com/a/1887113/31308
+#>
+Param(
+    [Parameter(Mandatory,ValueFromPipelineByPropertyName)] [string]$Path
+)
+    $fileStream = $null
+    $byteReader = $null
     try {
-        $stream = New-Object System.IO.StreamReader -ArgumentList @($path)
-        $reader = New-Object System.IO.BinaryReader -ArgumentList @($stream.BaseStream)
-        $bytes = $reader.ReadBytes(4)
+        $fileItem = Get-Item -LiteralPath $Path
+        $fileStream = New-Object System.IO.FileStream($fileItem.FullName, [System.IO.FileMode]::Open)
+        $byteReader = New-Object System.IO.BinaryReader($fileStream)
+        $bytes = $byteReader.ReadBytes(4)
         if ($bytes.Length -eq 4) {
             if ($bytes[0] -eq 80 -and
                 $bytes[1] -eq 75 -and
                 $bytes[2] -eq 3 -and
-                $bytes[3] -eq 4) {
-
+                $bytes[3] -eq 4)
+            {
                 return $true;
             }
         }
-    }
-    finally {
-        if ($reader) {
-            $reader.Dispose();
+    } finally {
+        if ($byteReader) {
+            $byteReader.Close()
         }
-        if ($stream) {
-            $stream.Dispose();
+        if ($fileStream) {
+            $fileStream.Close()
         }
     }
-    return $false;
+    return $false
 }
