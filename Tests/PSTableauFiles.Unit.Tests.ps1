@@ -16,22 +16,32 @@ BeforeDiscovery {
 Describe "Unit Tests for Get-TableauFileXml" -Tag Unit {
     Context "Getting XML from .twb files" -ForEach $twbFiles {
         It "<_> content returned" {
-            Get-TableauFileXml $_ | Should -Not -BeNullOrEmpty
+            Get-TableauFileXml $_ | Should -BeOfType String
+        }
+    }
+    Context "Getting XML from .twb files (pipeline)" -ForEach $twbFiles {
+        It "<_> content returned" {
+            $_ | Get-TableauFileXml | Should -BeOfType String
         }
     }
     Context "Getting XML from .twbx files" -ForEach $twbxFiles {
         It "<_> content returned" {
-            Get-TableauFileXml $_ | Should -Not -BeNullOrEmpty
+            Get-TableauFileXml $_ | Should -BeOfType String
+        }
+    }
+    Context "Getting XML from .twbx files (pipeline)" -ForEach $twbxFiles {
+        It "<_> content returned" {
+            $_ | Get-TableauFileXml | Should -BeOfType String
         }
     }
     Context "Getting XML from .tds files" -ForEach $tdsFiles {
         It "<_> content returned" {
-            Get-TableauFileXml -Path $_ | Should -Not -BeNullOrEmpty
+            Get-TableauFileXml -Path $_ | Should -BeOfType String
         }
     }
     Context "Getting XML from .tdsx files" -ForEach $tdsxFiles {
         It "<_> content returned" {
-            Get-TableauFileXml -Path $_ | Should -Not -BeNullOrEmpty
+            Get-TableauFileXml -Path $_ | Should -BeOfType String
         }
     }
     Context "Exceptions" {
@@ -52,7 +62,7 @@ Describe "Unit Tests for Get-TableauFileXml" -Tag Unit {
     Context "Test Zip File .twbx" -ForEach $twbxFiles {
         It "<_> is valid Zip file" {
             InModuleScope PSTableauFiles -Parameters @{ file = $_ } {
-                $file | Should -Not -BeNullOrEmpty
+                # $file | Should -Not -BeNullOrEmpty
                 Test-TableauZipFile $file | Should -BeTrue
             }
         }
@@ -60,8 +70,7 @@ Describe "Unit Tests for Get-TableauFileXml" -Tag Unit {
     Context "Test Zip File .tsdx" -ForEach $tdsxFiles {
         It "<_> is valid Zip file" {
             InModuleScope PSTableauFiles -Parameters @{ file = $_ } {
-                $file | Should -Not -BeNullOrEmpty
-                Test-TableauZipFile -Path $file | Should -BeTrue
+                $file | Test-TableauZipFile | Should -BeTrue
             }
         }
     }
