@@ -29,7 +29,7 @@ Param(
             try {
                 $fileStream = New-Object System.IO.FileStream($fileItem.FullName, [System.IO.FileMode]::Open)
                 $zipArchive = New-Object System.IO.Compression.ZipArchive($fileStream)
-                # TODO the main file should be on the root level of the archive
+                # note: $_.FullName -eq $_.Name is only true for root-level entries
                 $xmlFiles = $zipArchive.Entries | Where-Object {
                         $_.FullName -eq $_.Name -and ([System.IO.Path]::GetExtension($_.Name) -in @(".twb",".tds"))
                     } | Select-Object -First 1
@@ -80,11 +80,12 @@ Param(
         $zipArchive = $null
         $entryStream = $null
         try {
-            $fileStream = New-Object System.IO.FileStream -ArgumentList $Path, ([System.IO.FileMode]::CreateNew), ([System.IO.FileAccess]::ReadWrite), ([System.IO.FileShare]::None)
-            $zipArchive = New-Object System.IO.Compression.ZipArchive -ArgumentList $fileStream, ([System.IO.Compression.ZipArchiveMode]::Update)
+            $fileStream = New-Object System.IO.FileStream($Path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::ReadWrite)
+            $zipArchive = New-Object System.IO.Compression.ZipArchive($fileStream, [System.IO.Compression.ZipArchiveMode]::Update)
             $entry = $zipArchive.CreateEntry($entryName, ([System.IO.Compression.CompressionLevel]::Optimal))
             $entryStream = $entry.Open()
             $DocumentXml.Save($entryStream)
+            $entryStream.Close()
             return $true
         } finally {
             if ($entryStream) {
@@ -130,31 +131,33 @@ Param(
         $fileType = $fileItem.Extension.Substring(1)
         if ($fileType -eq "twbx") {
             $tableauObject = "workbook"
-            $tableauDocumentType = 'twb'
+            $tableauDocumentType = '.twb'
         } elseif ($fileType -eq "tdsx") {
             $tableauObject = "data source"
-            $tableauDocumentType = 'tds'
+            $tableauDocumentType = '.tds'
         } else {
             throw [System.IO.FileFormatException] "Unknown file type. Tableau document file types are expected."
         }
-        if ($DocumentXml -and $PSCmdlet.ShouldProcess($Path, "Update .$tableauDocumentType in packaged $tableauObject")) {
+        if ($DocumentXml -and $PSCmdlet.ShouldProcess($Path, "Update $tableauDocumentType in packaged $tableauObject")) {
             $fileStream = $null
             $zipArchive = $null
             $entryStream = $null
             try {
-                $fileStream = New-Object System.IO.FileStream -ArgumentList $Path, ([System.IO.FileMode]::Open), ([System.IO.FileAccess]::ReadWrite), ([System.IO.FileShare]::Read)
-                $zipArchive = New-Object System.IO.Compression.ZipArchive -ArgumentList $fileStream, ([System.IO.Compression.ZipArchiveMode]::Update)
-                # Locate the existing document type entry and remove it
-                # TODO the main file should be on the root level of the archive
-                $entry = $zipArchive.Entries | Where-Object {
-                        $_.FullName -eq $_.Name -and ([System.IO.Path]::GetExtension($_.Name)) -eq ('.'+$tableauDocumentType)
-                    } | Select-Object -First 1
+                $fileStream = New-Object System.IO.FileStream($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite)
+                $zipArchive = New-Object System.IO.Compression.ZipArchive($fileStream, [System.IO.Compression.ZipArchiveMode]::Update)
+                # note: $_.FullName -eq $_.Name is only true for root-level entries
+                $entries = $zipArchive.Entries | Where-Object { $_.FullName -eq $_.Name -and [System.IO.Path]::GetExtension($_.Name) -eq $tableauDocumentType }
+                if ($entries.Count -gt 1) {
+                    throw [System.IO.FileLoadException] "More than one main XML files found."
+                }
+                $entry = $entries | Select-Object -First 1
                 if ($entry) {
                     $entryName = $entry.Name
                     $entry.Delete()
                     $entry = $zipArchive.CreateEntry($entryName, ([System.IO.Compression.CompressionLevel]::Optimal))
                     $entryStream = $entry.Open()
                     $DocumentXml.Save($entryStream)
+                    $entryStream.Close()
                     return $true
                 } else {
                     throw [System.IO.FileNotFoundException] "Main XML file not found."
@@ -168,6 +171,52 @@ Param(
                 }
                 if ($fileStream) {
                     $fileStream.Dispose()
+                }
+            }
+        }
+        if ($DataFile) {
+            foreach ($file in $DataFile) {
+                $fileName = [System.IO.Path]::GetFileName($file)
+                if ($PSCmdlet.ShouldProcess($Path, "Update data file $fileName in packaged $tableauObject")) {
+                    $fileStream = $null
+                    $zipArchive = $null
+                    $entryStream = $null
+                    $dataFileStream = $null
+                    try {
+                        $fileStream = New-Object System.IO.FileStream($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite)
+                        $zipArchive = New-Object System.IO.Compression.ZipArchive($fileStream, [System.IO.Compression.ZipArchiveMode]::Update)
+                        $entries = $zipArchive.Entries | Where-Object { $_.Name -eq $fileName }
+                        if ($entries.Count -gt 1) {
+                            throw [System.IO.FileLoadException] "Duplicate data files found."
+                        }
+                        $entry = $entries | Select-Object -First 1
+                        if ($entry) {
+                            $entryName = $entry.FullName
+                            $entry.Delete()
+                            $entry = $zipArchive.CreateEntry($entryName, ([System.IO.Compression.CompressionLevel]::Optimal))
+                            $dataFileStream = [System.IO.File]::OpenRead($file)
+                            $entryStream = $entry.Open()
+                            $dataFileStream.CopyTo($entryStream)
+                            $entryStream.Close()
+                            $dataFileStream.Close()
+                            return $true
+                        } else {
+                            throw [System.IO.FileNotFoundException] "Data file not found."
+                        }
+                    } finally {
+                        if ($dataFileStream) {
+                            $dataFileStream.Dispose()
+                        }
+                        if ($entryStream) {
+                            $entryStream.Dispose()
+                        }
+                        if ($zipArchive) {
+                            $zipArchive.Dispose()
+                        }
+                        if ($fileStream) {
+                            $fileStream.Dispose()
+                        }
+                    }
                 }
             }
         }
