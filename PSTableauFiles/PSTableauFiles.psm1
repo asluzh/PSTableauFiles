@@ -1,64 +1,23 @@
 # System.IO.Compression.FileSystem requires at least .NET 4.5
 # [System.Reflection.Assembly]::LoadWithPartialName("System.IO.Compression") | Out-Null
 
-function Get-TableauFileXml {
+function New-TableauZipFile {
 <#
 .SYNOPSIS
-Get Tableau Document Xml
+Create a Tableau packaged file
 
 .DESCRIPTION
-Returns the workbook/datasource XML from a TWB(X)/TDS(X) file.
-If the file is not compressed, the original XML contents are returned.
+Creates a Tableau packaged file (workbook: .twbx, data source: .tdsx) with the provided XML.
 
 .PARAMETER Path
-The file path to the Tableau document.
-#>
-Param(
-    [Parameter(Mandatory,ValueFromPipeline)] [string]$Path
-)
-    if (Test-Path $Path) {
-        $fileItem = Get-Item $Path
-        $fileType = $fileItem.Extension.Substring(1)
-        if ($fileType -eq "twb" -or $fileType -eq "tds") {
-            return (Get-Content $Path)
-        }
-        elseif ($fileType -eq "twbx" -or $fileType -eq "tdsx") {
-            $fileStream = $null
-            $zipArchive = $null
-            $reader = $null
-            try {
-                $fileStream = New-Object System.IO.FileStream($fileItem.FullName, [System.IO.FileMode]::Open)
-                $zipArchive = New-Object System.IO.Compression.ZipArchive($fileStream)
-                # note: $_.FullName -eq $_.Name is only true for root-level entries
-                $xmlFiles = $zipArchive.Entries | Where-Object {
-                        $_.FullName -eq $_.Name -and ([System.IO.Path]::GetExtension($_.Name) -in @(".twb",".tds"))
-                    } | Select-Object -First 1
-                if ($null -eq $xmlFiles) {
-                    throw [System.IO.FileNotFoundException] "Main XML file not found."
-                }
-                $reader = New-Object System.IO.StreamReader $xmlFiles[0].Open()
-                $xml = $reader.ReadToEnd()
-                return $xml
-            } finally {
-                if ($reader) {
-                    $reader.Dispose()
-                }
-                if ($zipArchive) {
-                    $zipArchive.Dispose()
-                }
-                if ($fileStream) {
-                    $fileStream.Dispose()
-                }
-            }
-        } else {
-            throw [System.IO.FileFormatException] "Unknown file type. Tableau document file types are expected."
-        }
-    } else {
-        throw [System.IO.FileNotFoundException] "File not found."
-    }
-}
+The file path to the output Tableau packaged file
 
-function New-TableauFile {
+.PARAMETER DocumentXml
+The workbook/datasource XML.
+
+.EXAMPLE
+New-TableauZipFile -Path workbook.twbx -DocumentXml $xml
+#>
 [CmdletBinding(SupportsShouldProcess)]
 Param(
     [Parameter(Mandatory)] [string]$Path,
@@ -101,7 +60,7 @@ Param(
     }
 }
 
-function Update-TableauFile {
+function Update-TableauZipFile {
 <#
 .SYNOPSIS
 Update Tableau File Contents
@@ -119,6 +78,12 @@ The file path of the compressed Tableau file.
 
 .PARAMETER DataFile
 (Optional) The file path of the data file(s).
+
+.EXAMPLE
+$result = Update-TableauZipFile -Path $twbxFile -DocumentXml $xml
+
+.EXAMPLE
+$result = Update-TableauZipFile -Path $twbxFile -DataFile "Employee.xlsx"
 #>
 [CmdletBinding(SupportsShouldProcess)]
 Param(
@@ -187,9 +152,10 @@ Param(
                         $zipArchive = New-Object System.IO.Compression.ZipArchive($fileStream, [System.IO.Compression.ZipArchiveMode]::Update)
                         $entries = $zipArchive.Entries | Where-Object { $_.Name -eq $fileName }
                         if ($entries.Count -gt 1) {
+                            # TODO allow to specify the file (or subfolder) in archive
                             throw [System.IO.FileLoadException] "Duplicate data files found."
                         }
-                        $entry = $entries | Select-Object -First 1
+                        $entry = $entries #| Select-Object -First 1
                         if ($entry) {
                             $entryName = $entry.FullName
                             $entry.Delete()
@@ -226,22 +192,141 @@ Param(
     }
 }
 
+function Test-TableauZipFile {
+<#
+.SYNOPSIS
+Test Tableau zip file
+
+.DESCRIPTION
+Tests the Tableau packaged (zip) file for the magic zip file header.
+The functions returns true for genuine zip file or false otherwise.
+
+.PARAMETER Path
+The path for the Tableau workbook/datasource file.
+
+.EXAMPLE
+$twbxFile | Test-TableauZipFile
+
+.EXAMPLE
+$result = Test-TableauZipFile datasource.tdsx
+
+.NOTES
+Source http://stackoverflow.com/a/1887113/31308
+#>
+Param(
+    [Parameter(Mandatory,ValueFromPipeline)] [string]$Path
+)
+    process {
+        $fileStream = $null
+        $byteReader = $null
+        try {
+            $fileItem = Get-Item $Path
+            $fileStream = New-Object System.IO.FileStream($fileItem.FullName, [System.IO.FileMode]::Open)
+            $byteReader = New-Object System.IO.BinaryReader($fileStream)
+            $bytes = $byteReader.ReadBytes(4)
+            if ($bytes.Length -eq 4) {
+                if ($bytes[0] -eq 80 -and
+                    $bytes[1] -eq 75 -and
+                    $bytes[2] -eq 3 -and
+                    $bytes[3] -eq 4)
+                {
+                    return $true;
+                }
+            }
+        } finally {
+            if ($byteReader) {
+                $byteReader.Close()
+            }
+            if ($fileStream) {
+                $fileStream.Close()
+            }
+        }
+        return $false
+    }
+}
+
+function Get-TableauFileXml {
+<#
+.SYNOPSIS
+Get Tableau Document Xml
+
+.DESCRIPTION
+Returns the workbook/datasource XML from a TWB(X)/TDS(X) file.
+If the file is not compressed, the original XML contents are returned.
+
+.PARAMETER Path
+The file path to the Tableau document.
+
+.EXAMPLE
+$xml = Get-TableauFileXml -Path $filePath
+#>
+Param(
+    [Parameter(Mandatory,ValueFromPipeline)] [string]$Path
+)
+    process {
+        if (Test-Path $Path) {
+            $fileItem = Get-Item $Path
+            $fileType = $fileItem.Extension.Substring(1)
+            if ($fileType -eq "twb" -or $fileType -eq "tds") {
+                return (Get-Content $Path)
+            }
+            elseif ($fileType -eq "twbx" -or $fileType -eq "tdsx") {
+                $fileStream = $null
+                $zipArchive = $null
+                $reader = $null
+                try {
+                    $fileStream = New-Object System.IO.FileStream($fileItem.FullName, [System.IO.FileMode]::Open)
+                    $zipArchive = New-Object System.IO.Compression.ZipArchive($fileStream)
+                    # note: $_.FullName -eq $_.Name is only true for root-level entries
+                    $xmlFiles = $zipArchive.Entries | Where-Object {
+                            $_.FullName -eq $_.Name -and ([System.IO.Path]::GetExtension($_.Name) -in @(".twb",".tds"))
+                        } | Select-Object -First 1
+                    if ($null -eq $xmlFiles) {
+                        throw [System.IO.FileNotFoundException] "Main XML file not found."
+                    }
+                    $reader = New-Object System.IO.StreamReader $xmlFiles[0].Open()
+                    $xml = $reader.ReadToEnd()
+                    return $xml
+                } finally {
+                    if ($reader) {
+                        $reader.Dispose()
+                    }
+                    if ($zipArchive) {
+                        $zipArchive.Dispose()
+                    }
+                    if ($fileStream) {
+                        $fileStream.Dispose()
+                    }
+                }
+            } else {
+                throw [System.IO.FileFormatException] "Unknown file type. Tableau document file types are expected."
+            }
+        } else {
+            throw [System.IO.FileNotFoundException] "File not found."
+        }
+    }
+}
+
 function Get-TableauDocumentObject {
 <#
 .SYNOPSIS
 Get Tableau Document Object
 
 .DESCRIPTION
-Returns metadata information for local workbook(s).
+Returns metadata information for a Tableau workbook(s).
+Either DocumentXml, Path, or LiteralPath should be provided.
 
 .PARAMETER DocumentXml
-tbd
+(Optional) The Tableau workbook/datasource XML.
 
 .PARAMETER Path
-tbd
+(Optional) The path for the Tableau workbook/datasource file.
 
 .PARAMETER LiteralPath
-tbd
+(Optional) The literal path for the Tableau workbook/datasource file.
+
+.EXAMPLE
+$result = Get-TableauDocumentObject -DocumentXml $xml
 
 .NOTES
 Inspired by https://joshua.poehls.me/2013/tableaukit-a-powershell-module-for-tableau/
@@ -353,42 +438,4 @@ Param(
             $i++
         }
     }
-}
-
-function Test-TableauZipFile {
-<#
-.SYNOPSIS
-Tests for the magic zip file header
-
-.NOTES
-Source http://stackoverflow.com/a/1887113/31308
-#>
-Param(
-    [Parameter(Mandatory,ValueFromPipeline)] [string]$Path
-)
-    $fileStream = $null
-    $byteReader = $null
-    try {
-        $fileItem = Get-Item $Path
-        $fileStream = New-Object System.IO.FileStream($fileItem.FullName, [System.IO.FileMode]::Open)
-        $byteReader = New-Object System.IO.BinaryReader($fileStream)
-        $bytes = $byteReader.ReadBytes(4)
-        if ($bytes.Length -eq 4) {
-            if ($bytes[0] -eq 80 -and
-                $bytes[1] -eq 75 -and
-                $bytes[2] -eq 3 -and
-                $bytes[3] -eq 4)
-            {
-                return $true;
-            }
-        }
-    } finally {
-        if ($byteReader) {
-            $byteReader.Close()
-        }
-        if ($fileStream) {
-            $fileStream.Close()
-        }
-    }
-    return $false
 }

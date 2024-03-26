@@ -13,7 +13,7 @@ BeforeDiscovery {
     $script:tdsxFiles = Get-ChildItem -Recurse -Path "Tests/Files" -Filter *.tdsx -Exclude invalid.*
 }
 
-Describe "Functional Tests for Update-TableauFile" -Tag Functional {
+Describe "Functional Tests for Update-TableauZipFile" -Tag Integration {
     Context "Update XML inside .twbx file" -ForEach $twbxFiles {
         It "Copy .twbx file to the test drive" {
             Copy-Item -Path $_ -Destination TestDrive:
@@ -29,7 +29,7 @@ Describe "Functional Tests for Update-TableauFile" -Tag Functional {
             $xml.SelectNodes("/workbook") | ForEach-Object {
                 $_.SetAttribute("source-platform", "unknown");
             }
-            Update-TableauFile -Path $testFilePath -DocumentXml $xml | Should -BeTrue
+            Update-TableauZipFile -Path $testFilePath -DocumentXml $xml | Should -BeTrue
         }
         It "Get updated XML from .twbx file" {
             $updatedXml = Get-TableauFileXml $testFilePath
@@ -53,19 +53,19 @@ Describe "Functional Tests for Update-TableauFile" -Tag Functional {
         }
         It "Update and verify data files (1)" {
             $oldEntry = [System.IO.Compression.ZipFile]::OpenRead($testFilePath1).Entries | Where-Object { $_.Name -eq "Sales Commission.csv" } | Select-Object -First 1
-            Update-TableauFile -Path $testFilePath1 -DataFile "Tests/Files/Sales Commission.csv" | Should -BeTrue
+            Update-TableauZipFile -Path $testFilePath1 -DataFile "Tests/Files/Sales Commission.csv" | Should -BeTrue
             $newEntry = [System.IO.Compression.ZipFile]::OpenRead($testFilePath1).Entries | Where-Object { $_.Name -eq "Sales Commission.csv" } | Select-Object -First 1
             $newEntry.Length | Should -Not -Be $oldEntry.Length
         }
         It "Update and verify data files (2)" {
             $oldEntry = [System.IO.Compression.ZipFile]::OpenRead($testFilePath2).Entries | Where-Object { $_.Name -eq "Employee+Data.csv" } | Select-Object -First 1
-            Update-TableauFile -Path $testFilePath2 -DataFile "Tests/Files/Employee+Data.csv" | Should -BeTrue
+            Update-TableauZipFile -Path $testFilePath2 -DataFile "Tests/Files/Employee+Data.csv" | Should -BeTrue
             $newEntry = [System.IO.Compression.ZipFile]::OpenRead($testFilePath2).Entries | Where-Object { $_.Name -eq "Employee+Data.csv" } | Select-Object -First 1
             $newEntry.Length | Should -Not -Be $oldEntry.Length
         }
         It "Update and verify data files (3)" {
             $oldEntry = [System.IO.Compression.ZipFile]::OpenRead($testFilePath3).Entries | Where-Object { $_.Name -eq "Employee+Master.xlsx" } | Select-Object -First 1
-            Update-TableauFile -Path $testFilePath3 -DataFile "Tests/Files/Employee+Master.xlsx" | Should -BeTrue
+            Update-TableauZipFile -Path $testFilePath3 -DataFile "Tests/Files/Employee+Master.xlsx" | Should -BeTrue
             $newEntry = [System.IO.Compression.ZipFile]::OpenRead($testFilePath3).Entries | Where-Object { $_.Name -eq "Employee+Master.xlsx" } | Select-Object -First 1
             $newEntry.Length | Should -Not -Be $oldEntry.Length
         }
@@ -74,7 +74,7 @@ Describe "Functional Tests for Update-TableauFile" -Tag Functional {
             $xml.LoadXml((Get-TableauFileXml $testFilePath1))
             $xml | Should -Not -BeNullOrEmpty
             $script:testXmlContent = $xml.OuterXml
-            Update-TableauFile -Path $testFilePath1 -DocumentXml $xml | Should -BeTrue
+            Update-TableauZipFile -Path $testFilePath1 -DocumentXml $xml | Should -BeTrue
             Rename-Item -Path $testFilePath1 -NewName 1.twbx
             Copy-Item -Path (Join-Path $TestDrive "1.twbx") -Destination "Tests/Files"
         }
@@ -83,7 +83,7 @@ Describe "Functional Tests for Update-TableauFile" -Tag Functional {
             $xml.LoadXml((Get-TableauFileXml $testFilePath2))
             $xml | Should -Not -BeNullOrEmpty
             $script:testXmlContent = $xml.OuterXml
-            Update-TableauFile -Path $testFilePath2 -DocumentXml $xml | Should -BeTrue
+            Update-TableauZipFile -Path $testFilePath2 -DocumentXml $xml | Should -BeTrue
             Rename-Item -Path $testFilePath2 -NewName 2.tdsx
             Copy-Item -Path (Join-Path $TestDrive "2.tdsx") -Destination "Tests/Files"
         }
@@ -92,7 +92,7 @@ Describe "Functional Tests for Update-TableauFile" -Tag Functional {
             $xml.LoadXml((Get-TableauFileXml $testFilePath3))
             $xml | Should -Not -BeNullOrEmpty
             $script:testXmlContent = $xml.OuterXml
-            Update-TableauFile -Path $testFilePath3 -DocumentXml $xml | Should -BeTrue
+            Update-TableauZipFile -Path $testFilePath3 -DocumentXml $xml | Should -BeTrue
             Rename-Item -Path $testFilePath3 -NewName 3.tdsx
             Copy-Item -Path (Join-Path $TestDrive "3.tdsx") -Destination "Tests/Files"
         }
@@ -112,7 +112,7 @@ Describe "Functional Tests for Update-TableauFile" -Tag Functional {
             $xml.SelectNodes("/datasource") | ForEach-Object {
                 $_.SetAttribute("source-platform", "unknown");
             }
-            Update-TableauFile -Path $testFilePath -DocumentXml $xml | Should -BeTrue
+            Update-TableauZipFile -Path $testFilePath -DocumentXml $xml | Should -BeTrue
         }
         It "Get updated XML from .tdsx file" {
             $updatedXml = Get-TableauFileXml $testFilePath

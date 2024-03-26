@@ -1,4 +1,4 @@
-# Update-TableauFile
+# Update-TableauZipFile
 
 ## SYNOPSIS
 Update Tableau File Contents
@@ -6,7 +6,7 @@ Update Tableau File Contents
 ## SYNTAX
 
 ```
-Update-TableauFile [-Path] <String> [[-DocumentXml] <XmlDocument>] [[-DataFile] <String[]>]
+Update-TableauZipFile [-Path] <String> [[-DocumentXml] <XmlDocument>] [[-DataFile] <String[]>]
  [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
