@@ -12,7 +12,7 @@
 RootModule = 'PSTableauFiles.psm1'
 
 # Version number of this module.
-ModuleVersion = '0.2.1'
+ModuleVersion = '0.3.0'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -31,6 +31,8 @@ Author = 'Andrey Sluzhivoy'
 
 # Description of the functionality provided by this module
 Description = 'This PowerShell module facilitates manipulating Tableau files for automation tasks.'
+# Inspired by Tableau Document API
+# https://github.com/tableau/document-api-python/tree/master/tableaudocumentapi
 
 # Minimum version of the PowerShell engine required by this module
 PowerShellVersion = '5.1'
@@ -56,7 +58,9 @@ PowerShellVersion = '5.1'
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
 FunctionsToExport = @(
 'New-TableauZipFile', 'Update-TableauZipFile', 'Test-TableauZipFile',
-'Get-TableauFileXml', 'Get-TableauDocumentObject'
+'Get-TableauFileXml',
+'Get-TableauFileStructure',
+'Get-TableauFileObject' #, 'Export-TableauFileObject', 'Edit-TableauFileObject'
 )
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.

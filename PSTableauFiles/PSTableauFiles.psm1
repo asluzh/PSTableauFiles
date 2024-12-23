@@ -307,13 +307,13 @@ Param(
     }
 }
 
-function Get-TableauDocumentObject {
+function Get-TableauFileStructure {
 <#
 .SYNOPSIS
-Get Tableau Document Object
+Get Tableau Document properties from an XML file
 
 .DESCRIPTION
-Returns metadata information for a Tableau workbook(s).
+Returns Tableau Document metadata/properties for a Tableau document.
 Either DocumentXml, Path, or LiteralPath should be provided.
 
 .PARAMETER DocumentXml
@@ -325,8 +325,98 @@ Either DocumentXml, Path, or LiteralPath should be provided.
 .PARAMETER LiteralPath
 (Optional) The literal path for the Tableau workbook/datasource file.
 
+.PARAMETER XmlPath
+(Optional) The XPath specification for the element to be selected.
+
+.PARAMETER XmlAttributes
+(Optional) If provided, the output will include the list of attributes in the selected element.
+
+.PARAMETER XmlElements
+(Optional) If provided, the output will include the list of sub-elements in the selected element.
+
 .EXAMPLE
-$result = Get-TableauDocumentObject -DocumentXml $xml
+$result = Get-TableauFileStructure -Path $filename
+
+.EXAMPLE
+$result = Get-TableauFileStructure -DocumentXml $xml
+#>
+Param(
+    [Parameter(Mandatory,ParameterSetName='Xml',Position=0,ValueFromPipeline)][ValidateNotNullOrEmpty()]
+    [xml[]]$DocumentXml,
+
+    [Parameter(Mandatory,ParameterSetName='Path',Position=0,ValueFromPipeline,ValueFromPipelineByPropertyName)][ValidateNotNullOrEmpty()]
+    [string[]]$Path,
+
+    [Parameter(Mandatory,ParameterSetName='LiteralPath',ValueFromPipeline,ValueFromPipelineByPropertyName)][Alias('FullName')][ValidateNotNullOrEmpty()]
+    [string[]]$LiteralPath,
+
+    [Parameter()]
+    [string]$XmlPath='/workbook',
+    [Parameter()]
+    [switch]$XmlAttributes,
+    [Parameter()]
+    [switch]$XmlElements
+)
+    process {
+        $needXml = $false
+        if ($PSCmdlet.ParameterSetName -eq "Path") {
+            $paths = Resolve-Path -Path $Path | Select-Object -ExpandProperty Path
+            $needXml = $true
+        }
+        elseif ($PSCmdlet.ParameterSetName -eq "LiteralPath") {
+            $paths = Resolve-Path -LiteralPath $LiteralPath | Select-Object -ExpandProperty Path
+            $needXml = $true
+        }
+
+        if ($needXml) {
+            $DocumentXml = $paths | ForEach-Object { Get-TableauFileXml $_ }
+        }
+
+        $i = 0
+        foreach ($xml in $DocumentXml) {
+            $props = @{}
+            $xml | Select-Xml $XmlPath | Select-Object -ExpandProperty Node | ForEach-Object {
+                if ($XmlElements) {
+                    $props['Elements'] = $_.GetEnumerator() | ForEach-Object { $_ }
+                    # .get_name()
+                }
+                if ($XmlAttributes) {
+                    $props['Attributes'] = $_.Attributes.GetEnumerator() | ForEach-Object { $_ } # @{name=$_.name; value=$_.value}
+                    # .get_attributes().GetEnumerator() - name,value
+                }
+                $props['XmlElement'] = $_
+            }
+
+            if ($paths) {
+                $props['FileName'] = $paths | Select-Object -Index $i
+            }
+
+            Write-Output (New-Object PSObject -Property $props)
+            $i++
+        }
+    }
+}
+
+function Get-TableauFileObject {
+<#
+.SYNOPSIS
+Get Tableau Document Object created from an XML file
+
+.DESCRIPTION
+Returns Tableau Document metadata information for a Tableau workbook(s) and/or data source(s).
+Either DocumentXml, Path, or LiteralPath should be provided.s
+
+.PARAMETER DocumentXml
+(Optional) The Tableau workbook/datasource XML.
+
+.PARAMETER Path
+(Optional) The path for the Tableau workbook/datasource file.
+
+.PARAMETER LiteralPath
+(Optional) The literal path for the Tableau workbook/datasource file.
+
+.EXAMPLE
+$result = Get-TableauFileObject -DocumentXml $xml
 
 .NOTES
 Inspired by https://joshua.poehls.me/2013/tableaukit-a-powershell-module-for-tableau/
@@ -353,81 +443,83 @@ Param(
         }
 
         if ($needXml) {
-            $DocumentXml = $paths | ForEach-Object { Get-TableauDocumentXml $_ }
+            $DocumentXml = $paths | ForEach-Object { Get-TableauFileXml $_ }
         }
 
         $i = 0
         foreach ($xml in $DocumentXml) {
-            $worksheets = @()
-            $xml | Select-Xml '/workbook/worksheets/worksheet' | Select-Object -ExpandProperty Node |
-                ForEach-Object {
-                    $props = @{
-                        "Name" = $_.Attributes['name'].Value;
-                        "DisplayName" = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
 
-                        # TODO: Include list of referenced data sources.
-                    };
-                    $worksheets += New-Object PSObject -Property $props
+            $worksheets = @()
+            $xml | Select-Xml '/workbook/worksheets/worksheet' | Select-Object -ExpandProperty Node | ForEach-Object {
+                $props = @{
+                    Name = $_.Attributes['name'].Value;
+                    DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
+                    # TODO: Include list of referenced data sources.
                 }
+                $worksheets += New-Object PSObject -Property $props
+            }
 
             $dashboards = @()
-            $xml | Select-Xml '/workbook/dashboards/dashboard' | Select-Object -ExpandProperty Node |
-                ForEach-Object {
-                    # TODO: This really slows down the whole cmdlet. Find a way to make the dashboards' Worksheets property lazy evaluated.
-                    $dashboardWorksheets = @()
-                    $_ | Select-Xml './zones//zone' | Selec -ExpandProperty Node |
-                        # Assume any zone with a @name but not a @type is a worksheet zone.
-                        Where-Object { $null -eq $_.Attributes['type'] -and $null -ne $_.Attributes['name'] } |
-                        ForEach-Object {
-                            $zone = $_
-                            $dashboardWorksheets += ($worksheets | Where-Object { $_.Name -eq $zone.Attributes['name'].Value })
+            $xml | Select-Xml '/workbook/dashboards/dashboard' | Select-Object -ExpandProperty Node | ForEach-Object {
+                # TODO: This really slows down the whole cmdlet. Find a way to make the dashboards' Worksheets property lazy evaluated.
+                $dashboardWorksheets = @()
+                $_ | Select-Xml './zones//zone' | Select-Object -ExpandProperty Node | Where-Object { $null -eq $_.Attributes['type'] -and $null -ne $_.Attributes['name'] } | ForEach-Object {
+                    # Assume any zone with a @name but not a @type is a worksheet zone.
+                    $zone = $_
+                    $dashboardWorksheets += ($worksheets | Where-Object { $_.Name -eq $zone.Attributes['name'].Value })
+                }
+                $props = @{
+                    Name = $_.Attributes['name'].Value;
+                    DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
+                    Worksheets = $dashboardWorksheets;
+                }
+                $dashboards += New-Object PSObject -Property $props
+            }
+
+            $datasources = @()
+            $xml | Select-Xml '/workbook/datasources/datasource' | Select-Object -ExpandProperty Node | ForEach-Object {
+                $columns = @()
+                $_ | Select-Xml './column' | Select-Object -ExpandProperty Node | ForEach-Object {
+                    $columns += @{
+                        Name = $_.Attributes['name'].Value -ireplace "^\[|\]$", "";
+                        DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value -ireplace "^\[|\]$", "" };
+                        DataType = $_.Attributes['datatype'].Value;
+                        DomainType = $_.Attributes['param-domain-type'].Value;
+                        Value = $_.Attributes['value'].Value;
                         }
-
-                    $props = @{
-                        "Name" = $_.Attributes['name'].Value;
-                        "DisplayName" = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
-                        "Worksheets" = $dashboardWorksheets;
-                    };
-                    $dashboards += New-Object PSObject -Property $props
                 }
-
-            $dataSources = @()
-            $xml | Select-Xml '/workbook/datasources/datasource' | Select-Object -ExpandProperty Node |
-                ForEach-Object {
-                    $props = @{
-                        "Name" = $_.Attributes['name'].Value;
-                        "DisplayName" = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
-                        "ConnectionType" = ($_ | Select-Xml './connection/@class').Node.Value;
-
-                        # TODO: Include a "Connection" PSObject property with properties specific to the type of connection (i.e. file path for CSVs and server for SQL Server, etc).
-                    };
-                    $dataSources += New-Object PSObject -Property $props
+                $props = @{
+                    Name = $_.Attributes['name'].Value;
+                    DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
+                    ConnectionType = ($_ | Select-Xml './connection/@class').Node.Value;
+                    # TODO: Include a "Connection" PSObject property with properties specific to the type of connection (i.e. file path for CSVs and server for SQL Server, etc).
+                    Columns = $columns;
                 }
+                $datasources += New-Object PSObject -Property $props
+            }
 
             $parameters = @()
-            $xml | Select-Xml '/workbook/datasources/datasource[@name="Parameters"]/column' | Select-Object -ExpandProperty Node |
-                ForEach-Object {
-                    $props = @{
-                        "Name" = $_.Attributes['name'].Value -ireplace "^\[|\]$", "";
-                        "DisplayName" = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value -ireplace "^\[|\]$", "" };
-                        "DataType" = $_.Attributes['datatype'].Value;
-                        "DomainType" = $_.Attributes['param-domain-type'].Value;
-                        "Value" = $_.Attributes['value'].Value;
-                        "ValueDisplayName" = if ($_.Attributes['alias']) { $_.Attributes['alias'].Value } else { $_.Attributes['value'].Value };
-
-                        # TODO: For "list" parameters, include a ValueList property with all of the values and aliases.
-                    };
-                    $parameters += New-Object PSObject -Property $props
+            $xml | Select-Xml '/workbook/datasources/datasource[@name="Parameters"]/column' | Select-Object -ExpandProperty Node | ForEach-Object {
+                $props = @{
+                    Name = $_.Attributes['name'].Value -ireplace "^\[|\]$", "";
+                    DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value -ireplace "^\[|\]$", "" };
+                    DataType = $_.Attributes['datatype'].Value;
+                    DomainType = $_.Attributes['param-domain-type'].Value;
+                    Value = $_.Attributes['value'].Value;
+                    ValueDisplayName = if ($_.Attributes['alias']) { $_.Attributes['alias'].Value } else { $_.Attributes['value'].Value };
+                    # TODO: For "list" parameters, include a ValueList property with all of the values and aliases.
                 }
+                $parameters += New-Object PSObject -Property $props
+            }
 
             $props = @{
-                "FileVersion" = ($xml | Select-Xml '/workbook/@version').Node.Value;
-                "BuildVersion" = ($xml | Select-Xml '//comment()[1]').Node.Value -ireplace "[^\d\.]", "";
-                "Parameters" = $parameters;
-                "DataSources" = $dataSources;
-                "Worksheets" = $worksheets;
-                "Dashboards" = $dashboards;
-                "DocumentXml" = $xml;
+                FileVersion = ($xml | Select-Xml '/workbook/@version').Node.Value;
+                BuildVersion = ($xml | Select-Xml '//comment()[1]').Node.Value -ireplace "[^\d\.]", "";
+                Parameters = $parameters;
+                Datasources = $datasources;
+                Worksheets = $worksheets;
+                Dashboards = $dashboards;
+                DocumentXml = $xml;
             }
 
             if ($paths) {

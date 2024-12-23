@@ -44,21 +44,6 @@ Describe "Unit Tests for Get-TableauFileXml" -Tag Unit {
             Get-TableauFileXml -Path $_ | Should -BeOfType String
         }
     }
-    Context "Exceptions" {
-        It "Missing files should throw exception" {
-            {Get-TableauFileXml "./tests/assets/missing.twbx"} | Should -Throw -ExpectedMessage "File not found*"
-        }
-        It "Unknown file types should throw exception" {
-            {Get-TableauFileXml "./tests/assets/invalid.twby"} | Should -Throw -ExpectedMessage "Unknown file type*"
-        }
-        It "Invalid TWBX should throw exception" {
-            {Get-TableauFileXml "./tests/assets/invalid.twbx"} | Should -Throw -ExpectedMessage "Main XML file not found*"
-        }
-        It "Invalid Zip file should throw exception" {
-            $err = {Get-TableauFileXml "./tests/assets/invalid.zip.tdsx"} | Should -Throw -PassThru
-            $err.Exception.InnerException.Message | Should -Be "End of Central Directory record could not be found."
-        }
-    }
     Context "Test Zip File .twbx" -ForEach $twbxFiles {
         It "<_> is valid Zip file" {
             InModuleScope PSTableauFiles -Parameters @{ file = $_ } {
@@ -74,9 +59,96 @@ Describe "Unit Tests for Get-TableauFileXml" -Tag Unit {
             }
         }
     }
-    It "Test Zip File - invalid" {
-        InModuleScope PSTableauFiles {
-            Test-TableauZipFile "./tests/assets/invalid.zip.tdsx" | Should -BeFalse
+    Context "Exceptions" {
+        It "Missing files should throw exception" {
+            {Get-TableauFileXml "./tests/assets/missing.twbx"} | Should -Throw -ExpectedMessage "File not found*"
+        }
+        It "Unknown file types should throw exception" {
+            {Get-TableauFileXml "./tests/assets/invalid.twby"} | Should -Throw -ExpectedMessage "Unknown file type*"
+        }
+        It "Invalid TWBX should throw exception" {
+            {Get-TableauFileXml "./tests/assets/invalid.twbx"} | Should -Throw -ExpectedMessage "Main XML file not found*"
+        }
+        It "Invalid Zip file should throw exception" {
+            $err = {Get-TableauFileXml "./tests/assets/invalid.zip.tdsx"} | Should -Throw -PassThru
+            $err.Exception.InnerException.Message | Should -Be "End of Central Directory record could not be found."
+        }
+        It "Test Zip File - invalid" {
+            InModuleScope PSTableauFiles {
+                Test-TableauZipFile "./tests/assets/invalid.zip.tdsx" | Should -BeFalse
+            }
+        }
+    }
+    Context "Validate structure of .twbx file" -Tag Struc -ForEach $twbxFiles {
+        It "Workbook structure (.twbx) contains workbook element" {
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook'
+            $result.Length | Should -Be 1
+            $result.XmlElement | Should -BeOfType System.Xml.XmlElement
+            $result.Elements | Should -BeNullOrEmpty
+            $result.Attributes | Should -BeNullOrEmpty
+            $xml = Get-TableauFileXml -Path $_
+            $result2 = Get-TableauFileStructure -DocumentXml $xml
+            $result2.Length | Should -Be 1
+            $result2.XmlElement | Should -BeOfType System.Xml.XmlElement
+            $result2.Elements | Should -BeNullOrEmpty
+            $result2.Attributes | Should -BeNullOrEmpty
+        }
+        It "Workbook structure (.twbx) contains datasources element" {
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/datasources'
+            $result.Length | Should -Be 1
+            $result.XmlElement | Should -BeOfType System.Xml.XmlElement
+            $result.Elements | Should -BeNullOrEmpty
+            $result.Attributes | Should -BeNullOrEmpty
+        }
+        It "Workbook structure (.twbx, workbook) contain mandatory elements and attributes" {
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook' -XmlElements -XmlAttributes
+            $result.Length | Should -Be 1
+            $result.Elements | Should -BeOfType System.Xml.XmlElement
+            $result.Elements.Length | Should -BeGreaterThan 1
+            $result.Elements | Select-Object -ExpandProperty 'Name' | Should -Contain 'datasources'
+            $result.Elements | Select-Object -ExpandProperty 'Name' | Should -Contain 'worksheets'
+            $result.Elements | Select-Object -ExpandProperty 'Name' | Should -Contain 'repository-location'
+            $result.Elements | Select-Object -ExpandProperty 'Name' | Should -Contain 'preferences'
+            $result.Attributes | Should -BeOfType System.Xml.XmlAttribute
+            $result.Attributes.Length | Should -BeGreaterThan 1
+            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'source-build'
+            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'source-platform'
+            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'version'
+        }
+        It "Workbook structure (.twbx, workbook-datasources) contain mandatory elements and attributes" {
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/datasources' -XmlElements
+            $result.Elements.Length | Should -BeGreaterThan 1
+            $result.Elements | ForEach-Object { $_.get_name() } | Should -Contain 'datasource'
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/datasources/datasource' -XmlElements -XmlAttributes
+            $result.Elements.Length | Should -BeGreaterThan 1
+            $result.Elements | ForEach-Object { $_.get_name() } | Should -Contain 'connection'
+            $result.Elements | ForEach-Object { $_.get_name() } | Should -Contain 'column'
+            $result.Attributes.Length | Should -BeGreaterThan 1
+            $result.Attributes | Should -BeOfType System.Xml.XmlAttribute
+            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'name'
+            # $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'inline'
+            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'version'
+            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'caption'
+        }
+        It "Workbook structure (.twbx, workbook-datasources-column) contain mandatory elements and attributes" {
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/datasources/datasource/column' -XmlAttributes
+            $result.Attributes.Length | Should -BeGreaterThan 1
+            $result.Attributes | Should -BeOfType System.Xml.XmlAttribute
+            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'name'
+            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'role'
+            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'type'
+            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'datatype'
+            # $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'caption' # not for all columns
+        }
+        It "Check workbook object from .twbx file" {
+            $result = Get-TableauFileObject -Path $_
+            $result.Length | Should -Be 1
+            $result.FileName | Should -Not -BeNullOrEmpty
+            $result.FileVersion | Should -Not -BeNullOrEmpty
+            $result.BuildVersion | Should -Not -BeNullOrEmpty
+            $result.Worksheets | Should -Not -BeNullOrEmpty
+            $result.Datasources | Should -Not -BeNullOrEmpty
+            $result.DocumentXml | Should -BeOfType System.Xml.XmlDocument
         }
     }
 }
