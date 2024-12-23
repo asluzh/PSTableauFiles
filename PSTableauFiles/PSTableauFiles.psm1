@@ -374,7 +374,13 @@ Param(
 
         $i = 0
         foreach ($xml in $DocumentXml) {
-            $props = @{}
+            $props = @{
+                FileVersion = ($xml | Select-Xml '/workbook/@version').Node.Value;
+                FileOriginalVersion = ($xml | Select-Xml '/workbook/@original-version').Node.Value;
+                BuildVersion = ($xml | Select-Xml '//comment()[1]').Node.Value;
+                SourcePlatform = ($xml | Select-Xml '/workbook/@source-platform').Node.Value;
+                SourceBuild = ($xml | Select-Xml '/workbook/@source-build').Node.Value;
+            }
             $xml | Select-Xml $XmlPath | Select-Object -ExpandProperty Node | ForEach-Object {
                 if ($XmlElements) {
                     $props['Elements'] = $_.GetEnumerator() | ForEach-Object { $_ }
@@ -477,48 +483,64 @@ Param(
             }
 
             $datasources = @()
-            $xml | Select-Xml '/workbook/datasources/datasource' | Select-Object -ExpandProperty Node | ForEach-Object {
-                $columns = @()
-                $_ | Select-Xml './column' | Select-Object -ExpandProperty Node | ForEach-Object {
-                    $columns += @{
-                        Name = $_.Attributes['name'].Value -ireplace "^\[|\]$", "";
-                        DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value -ireplace "^\[|\]$", "" };
-                        DataType = $_.Attributes['datatype'].Value;
-                        DomainType = $_.Attributes['param-domain-type'].Value;
-                        Value = $_.Attributes['value'].Value;
-                        }
-                }
-                $props = @{
-                    Name = $_.Attributes['name'].Value;
-                    DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
-                    ConnectionType = ($_ | Select-Xml './connection/@class').Node.Value;
-                    # TODO: Include a "Connection" PSObject property with properties specific to the type of connection (i.e. file path for CSVs and server for SQL Server, etc).
-                    Columns = $columns;
-                }
-                $datasources += New-Object PSObject -Property $props
-            }
-
             $parameters = @()
-            $xml | Select-Xml '/workbook/datasources/datasource[@name="Parameters"]/column' | Select-Object -ExpandProperty Node | ForEach-Object {
-                $props = @{
-                    Name = $_.Attributes['name'].Value -ireplace "^\[|\]$", "";
-                    DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value -ireplace "^\[|\]$", "" };
-                    DataType = $_.Attributes['datatype'].Value;
-                    DomainType = $_.Attributes['param-domain-type'].Value;
-                    Value = $_.Attributes['value'].Value;
-                    ValueDisplayName = if ($_.Attributes['alias']) { $_.Attributes['alias'].Value } else { $_.Attributes['value'].Value };
-                    # TODO: For "list" parameters, include a ValueList property with all of the values and aliases.
+            $xml | Select-Xml '/workbook/datasources/datasource' | Select-Object -ExpandProperty Node | ForEach-Object {
+                if ($_.name -eq 'Parameters' -and $_.hasconnection -eq 'false' -and $_.inline -eq 'true') {
+                    # this special data source contains the definition of parameters
+                    $_ | Select-Xml './column' | Select-Object -ExpandProperty Node | ForEach-Object {
+                        $props = @{
+                            Name = $_.Attributes['name'].Value; #-ireplace "^\[|\]$", "";
+                            DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
+                            DataType = $_.Attributes['datatype'].Value;
+                            DomainType = $_.Attributes['param-domain-type'].Value;
+                            Value = $_.Attributes['value'].Value;
+                            ValueDisplayName = if ($_.Attributes['alias']) { $_.Attributes['alias'].Value } else { $_.Attributes['value'].Value };
+                            # TODO: For "list" parameters, include a ValueList property with all of the values and aliases.
+                        }
+                        $parameters += New-Object PSObject -Property $props
+                    }
+                } else {
+                    $columns = @()
+                    $_ | Select-Xml './column' | Select-Object -ExpandProperty Node | ForEach-Object {
+                        $column = @{
+                            Name = $_.Attributes['name'].Value; #-ireplace "^\[|\]$", "";
+                            DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
+                            Role = $_.Attributes['role'].Value;
+                            Type = $_.Attributes['type'].Value;
+                            DataType = $_.Attributes['datatype'].Value;
+                            Value = $_.Attributes['value'].Value;
+                        }
+                        if ($_.HasChildNodes) {
+                            $column['Formula'] = ($_ | Select-Xml './calculation/@formula').Node.Value;
+                        }
+                        $columns += $column
+                    }
+                    $props = @{
+                        Name = $_.Attributes['name'].Value;
+                        DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
+                        ConnectionType = ($_ | Select-Xml './connection/@class').Node.Value;
+                        # TODO: Include a "Connection" PSObject property with properties specific to the type of connection (i.e. file path for CSVs and server for SQL Server, etc).
+                        Columns = $columns;
+                    }
+                    $datasources += New-Object PSObject -Property $props
                 }
-                $parameters += New-Object PSObject -Property $props
             }
 
             $props = @{
                 FileVersion = ($xml | Select-Xml '/workbook/@version').Node.Value;
-                BuildVersion = ($xml | Select-Xml '//comment()[1]').Node.Value -ireplace "[^\d\.]", "";
-                Parameters = $parameters;
-                Datasources = $datasources;
+                FileOriginalVersion = ($xml | Select-Xml '/workbook/@original-version').Node.Value;
+                BuildVersion = ($xml | Select-Xml '//comment()[1]').Node.Value; #-ireplace "[^\d\.]", "";
+                SourcePlatform = ($xml | Select-Xml '/workbook/@source-platform').Node.Value;
+                SourceBuild = ($xml | Select-Xml '/workbook/@source-build').Node.Value;
                 Worksheets = $worksheets;
                 Dashboards = $dashboards;
+                # Stories = $stories;
+                Datasources = $datasources;
+                Parameters = $parameters;
+                # Actions = $actions;
+                # Preferences = $preferences;
+                # Styles = $styles;
+                # Windows = $windows;
                 DocumentXml = $xml;
             }
 
