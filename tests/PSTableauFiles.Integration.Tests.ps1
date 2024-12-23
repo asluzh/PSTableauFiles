@@ -1,19 +1,21 @@
 BeforeDiscovery {
+    $script:ModuleName = (Split-Path -Leaf $PSCommandPath) -Replace ".Module.Tests.ps1"
     $script:twbFiles  = Get-ChildItem -Recurse -Path "./tests/assets" -Filter *.twb  -Exclude invalid.* | Resolve-Path -Relative
     $script:twbxFiles = Get-ChildItem -Recurse -Path "./tests/assets" -Filter *.twbx -Exclude invalid.* | Resolve-Path -Relative
     $script:tdsFiles  = Get-ChildItem -Recurse -Path "./tests/assets" -Filter *.tds  -Exclude invalid.* | Resolve-Path -Relative
     $script:tdsxFiles = Get-ChildItem -Recurse -Path "./tests/assets" -Filter *.tdsx -Exclude invalid.* | Resolve-Path -Relative
 }
 BeforeAll {
-    Import-Module ./PSTableauFiles -Force
+    Get-Module -Name $ModuleName -All | Remove-Module -Force -ErrorAction Ignore
+    Import-Module ./$ModuleName -Force
     #Requires -Modules PSTableauREST
     # Import-Module Assert
     . ./scripts/SecretStore.Functions.ps1
-    # InModuleScope 'PSTableauFiles' { $script:VerbosePreference = 'Continue' } # display verbose output of module functions
+    # InModuleScope $ModuleName { $script:VerbosePreference = 'Continue' } # display verbose output of module functions
     $script:VerbosePreference = 'Continue' # display verbose output of the tests
-    InModuleScope 'PSTableauFiles' { $script:DebugPreference = 'Continue' } # display debug output of the module
+    InModuleScope $ModuleName { $script:DebugPreference = 'Continue' } # display debug output of the module
     $script:DebugPreference = 'Continue' # display debug output of the tests
-    # InModuleScope 'PSTableauFiles' { $script:ProgressPreference = 'SilentlyContinue' } # suppress progress for upload/download operations
+    # InModuleScope $ModuleName { $script:ProgressPreference = 'SilentlyContinue' } # suppress progress for upload/download operations
 
     # Retrieve configuration of test Tableau Server for validation of content via publishing
     Get-ChildItem -Path "./tests/config" -Filter "test_*.json" | Select-Object -First 1 | ForEach-Object {
@@ -40,7 +42,7 @@ AfterAll {
     }
 }
 
-Describe "Functional Tests for Update-TableauZipFile" -Tag Integration {
+Describe "Integration Tests for <ModuleName>" -Tag Integration {
     Context "Create Tableau packaged files" -ForEach $twbFiles {
         BeforeEach {
             $twbFile = $_
