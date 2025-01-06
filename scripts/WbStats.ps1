@@ -2,6 +2,7 @@ Import-Module ./PSTableauFiles -Force
 $files = Get-ChildItem -Recurse -Path "./tests/assets" -Filter *.twbx -Exclude invalid.*
 $result = Get-TableauFileObject -Path $files
 # $result | ForEach-Object { [System.IO.Path]::GetFileName($_.FileName), ($_.Datasources | Measure-Object -Property Name | Select-Object -ExpandProperty Count) } #| Group-Object
+# $result | ForEach-Object { $_.RepositoryLocation.Revision }
 $stats = $result | Select-Object -Property `
     @{l='File';e={[System.IO.Path]::GetFileName($_.FileName)}},
     @{l='ParamCount';e={ if ($_.Parameters) { $_.Parameters | Measure-Object -Property Name | Select-Object -ExpandProperty Count } else {0} }},

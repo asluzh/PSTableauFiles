@@ -307,6 +307,18 @@ Param(
     }
 }
 
+function ConvertTo-TableauColumnDisplayName {
+Param(
+    [Parameter(Mandatory,Position=0,ValueFromPipeline)]
+    [string]$Name
+)
+    if ($Name -eq '[:Measure Names]') {
+        return 'Measure Names'
+    } else {
+        return ($Name -ireplace "^\[|\]$", "")
+    }
+}
+
 function Get-TableauFileStructure {
 <#
 .SYNOPSIS
@@ -394,7 +406,8 @@ Param(
             }
 
             if ($paths) {
-                $props['FileName'] = $paths | Select-Object -Index $i
+                $props['FilePath'] = $paths | Select-Object -Index $i
+                $props['FileName'] = [System.IO.Path]::GetFileName($props['FilePath'])
             }
 
             Write-Output (New-Object PSObject -Property $props)
@@ -485,11 +498,12 @@ Param(
             $datasources = @()
             $parameters = @()
             $xml | Select-Xml '/workbook/datasources/datasource' | Select-Object -ExpandProperty Node | ForEach-Object {
-                if ($_.name -eq 'Parameters' -and $_.hasconnection -eq 'false' -and $_.inline -eq 'true') {
+                $datasource_name = $_.name
+                if ($datasource_name -eq 'Parameters' -and $_.hasconnection -eq 'false' -and $_.inline -eq 'true') {
                     # this special data source contains the definition of parameters
                     $_ | Select-Xml './column' | Select-Object -ExpandProperty Node | ForEach-Object {
                         $props = @{
-                            Name = $_.Attributes['name'].Value; #-ireplace "^\[|\]$", "";
+                            Name = $_.Attributes['name'].Value;
                             DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
                             DataType = $_.Attributes['datatype'].Value;
                             DomainType = $_.Attributes['param-domain-type'].Value;
@@ -500,38 +514,119 @@ Param(
                         $parameters += New-Object PSObject -Property $props
                     }
                 } else {
+                    # Following sub-elements are present under datasource:
+                    # connection > named-connections, relation, cols>map, metadata-records>metadata-record
+                    # column-instance
+                    # drill-paths > drill-path > field
+                    # folders-common > folder > folder-item
+                    # extract > connection
+                    # layout
+                    # style > style-rule > encoding
+                    # semantic-values
+                    # datasource-dependencies (only for params?)
+                    # object-graph > objects > object
+                    # object-graph > relationships > relationship
                     $columns = @()
                     $_ | Select-Xml './column' | Select-Object -ExpandProperty Node | ForEach-Object {
                         $column = @{
-                            Name = $_.Attributes['name'].Value; #-ireplace "^\[|\]$", "";
-                            DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
+                            Name = $_.Attributes['name'].Value;
+                            DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value | ConvertTo-TableauColumnDisplayName };
                             Role = $_.Attributes['role'].Value;
                             Type = $_.Attributes['type'].Value;
                             DataType = $_.Attributes['datatype'].Value;
-                            Value = $_.Attributes['value'].Value;
+                            Hidden = if ($_.Attributes['hidden']) { $_.Attributes['hidden'].Value -eq 'true' } else { $false };
+                        }
+                        if ($_.Attributes['datatype'].Value -eq 'table') {
+                            # it appears Tableau Desktop always adds "(Count)" for record counters
+                            $column['DisplayName'] = $column['DisplayName'] + ' (Count)'
                         }
                         if ($_.HasChildNodes) {
                             $column['Formula'] = ($_ | Select-Xml './calculation/@formula').Node.Value;
                         }
                         $columns += $column
                     }
+                    $cols = @()
+                    $_ | Select-Xml './connection/cols/map' | Select-Object -ExpandProperty Node | ForEach-Object {
+                        $cols += $_
+                    }
+                    $metadata_records = @()
+                    $_ | Select-Xml './connection/metadata-records/metadata-record' | Select-Object -ExpandProperty Node | ForEach-Object {
+                        $metadata_records += $_
+                    }
+                    $folders = @()
+                    $_ | Select-Xml './folders-common/folder' | Select-Object -ExpandProperty Node | ForEach-Object {
+                        $folders += @{
+                            Name = $_.name;
+                            FolderItems = $_.'folder-item';
+                        }
+                    }
+                    $drillpaths = @()
+                    $_ | Select-Xml './drill-paths/drill-path' | Select-Object -ExpandProperty Node | ForEach-Object {
+                        $drillpath = @{
+                            Name = $_.name;
+                            HierarchyItems = $_.field;
+                        }
+                        $drillpaths += $drillpath
+                    }
+                    # TODO check: complement missing columns from worksheet metadata - only for "cols"
+                    $cols | ForEach-Object {
+                        $column_name = $_.Key
+                        $column_found = $columns | Where-Object Name -eq $column_name
+                        if (-Not $column_found) {
+                            Write-Debug ("New column found: {0}" -f $column_name)
+                            $xml | Select-Xml '/workbook/worksheets/worksheet/table/view/datasource-dependencies' | Select-Object -ExpandProperty Node | Where-Object datasource -eq $datasource_name | ForEach-Object {
+                                $_ws_column = $_ | Select-Xml './column' | Select-Object -ExpandProperty Node | Where-Object name -eq $column_name | Select-Object -First 1
+                                if ($_ws_column) {
+                                    $column = @{
+                                        Name = $_ws_column.Attributes['name'].Value;
+                                        DisplayName = if ($_ws_column.Attributes['caption']) { $_ws_column.Attributes['caption'].Value } else { $_ws_column.Attributes['name'].Value | ConvertTo-TableauColumnDisplayName };
+                                        Role = $_ws_column.Attributes['role'].Value;
+                                        Type = $_ws_column.Attributes['type'].Value;
+                                        DataType = $_ws_column.Attributes['datatype'].Value;
+                                        Hidden = if ($_ws_column.Attributes['hidden']) { $_ws_column.Attributes['hidden'].Value -eq 'true' } else { $false };
+                                    }
+                                    # if ($_ws_column.Attributes['datatype'].Value -eq 'table') {
+                                    #     $column['DisplayName'] = $column['DisplayName'] + ' (Count)'
+                                    # }
+                                    # if ($_ws_column.HasChildNodes) {
+                                    #     $column['Formula'] = ($_ws_column | Select-Xml './calculation/@formula').Node.Value;
+                                    # }
+                                    $columns += $column
+                                } else {
+                                    Write-Debug "WS column definition not found"
+                                }
+                            }
+                        }
+                    }
                     $props = @{
-                        Name = $_.Attributes['name'].Value;
-                        DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
+                        Name = $datasource_name;
+                        DisplayName = $datasource_name;
                         ConnectionType = ($_ | Select-Xml './connection/@class').Node.Value;
+                        # TODO: what is the outcome when the data sources has multiple connections?
                         # TODO: Include a "Connection" PSObject property with properties specific to the type of connection (i.e. file path for CSVs and server for SQL Server, etc).
+                        ConnectionCols = $cols;
                         Columns = $columns;
+                        Metadata = $metadata_records;
+                        Folders = $folders;
+                        Hierarchies = $drillpaths;
                     }
                     $datasources += New-Object PSObject -Property $props
                 }
             }
 
+            $repository_location = $xml | Select-Xml '/workbook/repository-location' | Select-Object -ExpandProperty Node
             $props = @{
                 FileVersion = ($xml | Select-Xml '/workbook/@version').Node.Value;
                 FileOriginalVersion = ($xml | Select-Xml '/workbook/@original-version').Node.Value;
                 BuildVersion = ($xml | Select-Xml '//comment()[1]').Node.Value; #-ireplace "[^\d\.]", "";
                 SourcePlatform = ($xml | Select-Xml '/workbook/@source-platform').Node.Value;
                 SourceBuild = ($xml | Select-Xml '/workbook/@source-build').Node.Value;
+                RepositoryLocation = @{
+                    DerivedFrom=($repository_location.Attributes | Where-Object Name -eq 'derived-from').Value;
+                    Id=($repository_location.Attributes | Where-Object Name -eq 'id').Value;
+                    Path=($repository_location.Attributes | Where-Object Name -eq 'path').Value;
+                    Revision=($repository_location.Attributes | Where-Object Name -eq 'revision').Value;
+                };
                 Worksheets = $worksheets;
                 Dashboards = $dashboards;
                 # Stories = $stories;
@@ -545,7 +640,8 @@ Param(
             }
 
             if ($paths) {
-                $props['FileName'] = $paths | Select-Object -Index $i
+                $props['FilePath'] = $paths | Select-Object -Index $i
+                $props['FileName'] = [System.IO.Path]::GetFileName($props['FilePath'])
             }
 
             Write-Output (New-Object PSObject -Property $props)
