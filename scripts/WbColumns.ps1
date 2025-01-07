@@ -9,4 +9,4 @@ $result = Get-TableauFileObject -Path $files
 # $result | ForEach-Object { $_.Datasources.Columns.DataType } | Group-Object -NoElement | Format-Table
 # $result | Where-Object { $_.FileName -eq "Drunken Gauge Design.twbx" } | ForEach-Object { $_.Datasources.Columns.DataType } | Group-Object -NoElement | Format-Table
 # $result | Where-Object { $_.FileName -eq "Financial Markets Updated.twbx" } | ForEach-Object { $_.Datasources.Columns } | Select-Object -Property Name,DisplayName,Hidden
-$result | Where-Object { $_.FileName -eq "Drunken Gauge Design.twbx" } | ForEach-Object { $_.Datasources.Columns } | Select-Object -Property Name,DisplayName,Hidden
+$result | Where-Object { $_.FileName -eq "Drunken Gauge Design.twbx" } | ForEach-Object { $_.Datasources.Columns } | Select-Object -Property DisplayName,Hidden,Formula

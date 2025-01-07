@@ -7,6 +7,6 @@ $result = Get-TableauFileObject -Path $files
 # $result | ForEach-Object { $_.Datasources.ConnectionType } | Format-Table
 # $result | Where-Object { $_.FileName -eq "Drunken Gauge Design.twbx" } | ForEach-Object { $_.Datasources.Columns.DataType } | Group-Object -NoElement | Format-Table
 # $result | Where-Object { $_.FileName -eq "Drunken Gauge Design.twbx" } | ForEach-Object { $_.Datasources.Columns } | Select-Object -Property Name,DisplayName,Hidden
-# $result | Where-Object { $_.FileName -eq "Drunken Gauge Design.twbx" } | ForEach-Object { $_.Datasources.Folders } | Select-Object -Property Name,FolderItems | Format-Table
-# $result | Where-Object { $_.FileName -eq "Drunken Gauge Design.twbx" } | ForEach-Object { $_.Datasources.Hierarchies } | Select-Object -Property Name,HierarchyItems | Format-Table
-$result | Where-Object { $_.FileName -eq "Drunken Gauge Design.twbx" } | ForEach-Object { $_.Datasources.Encodings } | Format-Table
+$result | Where-Object { $_.FileName -eq "Drunken Gauge Design.twbx" } | ForEach-Object { $_.Datasources.Folders } | Select-Object -Property Name,FolderItems | Format-Table
+$result | Where-Object { $_.FileName -eq "Drunken Gauge Design.twbx" } | ForEach-Object { $_.Datasources.Hierarchies } | Select-Object -Property Name,HierarchyItems | Format-Table
+# $result | Where-Object { $_.FileName -eq "Drunken Gauge Design.twbx" } | ForEach-Object { $_.Datasources.Encodings } | Format-Table

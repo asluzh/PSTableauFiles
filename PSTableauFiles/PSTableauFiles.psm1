@@ -569,7 +569,10 @@ Param(
                                 #     Alias = $_.Attributes['alias'].Value;
                                 # }
                             }
-                            $props['ValueList'] = $param_value_list
+                            if ($param_value_list) {
+                                $props['ValueList'] = $param_value_list
+                            }
+                            # the "aliases" element is ignored, because the information is already contained in "members"
                         }
                         if ($_.Attributes['_.fcp.ParameterDefaultValues.true...default-value-field']) {
                             $props['DevaultValueField'] = $_.Attributes['_.fcp.ParameterDefaultValues.true...default-value-field'].Value
@@ -653,23 +656,32 @@ Param(
                     $_ | Select-Xml './folders-common/folder' | Select-Object -ExpandProperty Node | ForEach-Object {
                         $folders += @{
                             Name = $_.name;
-                            FolderItems = $_.'folder-item';
+                            FolderItems = $_.'folder-item' | ForEach-Object {
+                                $_ | ConvertFrom-XmlAttr;
+                            }
                         }
                     }
                     $drillpaths = @()
                     $_ | Select-Xml './drill-paths/drill-path' | Select-Object -ExpandProperty Node | ForEach-Object {
                         $drillpath = @{
                             Name = $_.name;
-                            HierarchyItems = $_.field;
+                            HierarchyItems = $_.field; #| ForEach-Object { $_ };
                         }
                         $drillpaths += $drillpath
                     }
                     $encodings = @()
-                    $_ | Select-Xml './style/style-rule' | Select-Object -ExpandProperty Node | ForEach-Object {
-                        $encodings += @{
-                            Element = $_.element;
-                            Encoding = $_.encoding;
+                    $_ | Select-Xml './style/style-rule/encoding' | Select-Object -ExpandProperty Node | ForEach-Object {
+                        $encoding = $_ | ConvertFrom-XmlAttr
+                        if ($_.map) {
+                            $encoding_map = $_ | Select-Xml './map' | Select-Object -ExpandProperty Node | ForEach-Object {
+                                @{
+                                    From = $_.bucket;
+                                    To = $_.to;
+                                }
+                            }
+                            $encoding | Add-Member NoteProperty -Name Map -Value $encoding_map
                         }
+                        $encodings += $encoding
                     }
                     $props = @{
                         Name = $datasource_name;
