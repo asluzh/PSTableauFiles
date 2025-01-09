@@ -533,7 +533,9 @@ Param(
             $styles = @()
             $xml | Select-Xml '/workbook/style/style-rule' | Select-Object -ExpandProperty Node | ForEach-Object {
                 $style_rule = $_ | ConvertFrom-XmlAttr
-                $style_rule | Add-Member NoteProperty -Name Format -Value ($_.format | ConvertFrom-XmlAttr)
+                if ($_.format) {
+                    $style_rule | Add-Member NoteProperty -Name Format -Value ($_.format | ConvertFrom-XmlAttr)
+                }
                 $styles += $style_rule
             }
 
@@ -554,7 +556,9 @@ Param(
                             # ValueDisplayName = if ($_.Attributes['alias']) { $_.Attributes['alias'].Value } else { $_.Attributes['value'].Value };
                         }
                         if ($props['DomainType'] -eq 'range') {
-                            $props['Range'] = $_.range | ConvertFrom-XmlAttr
+                            if ($_.range) {
+                                $props['Range'] = $_.range | ConvertFrom-XmlAttr
+                            }
                             # New-Object PSObject -Property @{
                             #     Min = $_.range.min;
                             #     Max = $_.range.max;
@@ -673,13 +677,13 @@ Param(
                     $_ | Select-Xml './style/style-rule/encoding' | Select-Object -ExpandProperty Node | ForEach-Object {
                         $encoding = $_ | ConvertFrom-XmlAttr
                         if ($_.map) {
-                            $encoding_map = $_ | Select-Xml './map' | Select-Object -ExpandProperty Node | ForEach-Object {
+                            $encoding_mapping = $_ | Select-Xml './map' | Select-Object -ExpandProperty Node | ForEach-Object {
                                 @{
                                     From = $_.bucket;
                                     To = $_.to;
                                 }
                             }
-                            $encoding | Add-Member NoteProperty -Name Map -Value $encoding_map
+                            $encoding | Add-Member NoteProperty -Name Mapping -Value $encoding_mapping
                         }
                         $encodings += $encoding
                     }

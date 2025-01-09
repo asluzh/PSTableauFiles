@@ -18,4 +18,4 @@ $result | ForEach-Object {
         };
 
     }
-} | ConvertTo-Json -Depth 10 | Out-File "./tests/output/columns.json"
+} | ConvertTo-Json -Depth 8 | Out-File "./tests/output/columns.json"
