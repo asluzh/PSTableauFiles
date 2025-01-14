@@ -268,7 +268,7 @@ Param(
             $fileItem = Get-Item $Path
             $fileType = $fileItem.Extension.Substring(1)
             if ($fileType -eq "twb" -or $fileType -eq "tds") {
-                return (Get-Content $Path)
+                return (Get-Content $Path -Raw)
             }
             elseif ($fileType -eq "twbx" -or $fileType -eq "tdsx") {
                 $fileStream = $null
@@ -518,30 +518,19 @@ Param(
         $i = 0
         foreach ($xml in $DocumentXml) {
 
-            $preferences = @()
-            $xml | Select-Xml '/workbook/preferences/preference' | Select-Object -ExpandProperty Node | ForEach-Object {
-                $preferences += $_ | ConvertFrom-XmlAttr
-            }
-
-            $color_palettes = @()
-            $xml | Select-Xml '/workbook/preferences/color-palette' | Select-Object -ExpandProperty Node | ForEach-Object {
-                $color_palette = $_ | ConvertFrom-XmlAttr
-                $color_palette | Add-Member NoteProperty -Name Colors -Value $_.color
-                $color_palettes += $color_palette
-            }
-
-            $styles = @()
-            $xml | Select-Xml '/workbook/style/style-rule' | Select-Object -ExpandProperty Node | ForEach-Object {
-                $style_rule = $_ | ConvertFrom-XmlAttr
-                if ($_.format) {
-                    $style_rule | Add-Member NoteProperty -Name Format -Value ($_.format | ConvertFrom-XmlAttr)
-                }
-                $styles += $style_rule
-            }
-
+            $docType = $xml.DocumentElement.LocalName
             $datasources = @()
             $parameters = @()
-            $xml | Select-Xml '/workbook/datasources/datasource' | Select-Object -ExpandProperty Node | ForEach-Object {
+
+            if ($docType -eq 'workbook') {
+                $repository_location = $xml | Select-Xml '/workbook/repository-location' | Select-Object -ExpandProperty Node
+                $datasources_xml = $xml | Select-Xml '/workbook/datasources/datasource' | Select-Object -ExpandProperty Node
+            } elseif ($docType -eq 'datasource') {
+                $repository_location = $xml | Select-Xml '/datasource/repository-location' | Select-Object -ExpandProperty Node
+                $datasources_xml = $xml | Select-Xml '/datasource' | Select-Object -ExpandProperty Node
+            }
+
+            $datasources_xml | ForEach-Object {
                 $datasource_name = $_.name
                 if ($datasource_name -eq 'Parameters' -and $_.hasconnection -eq 'false' -and $_.inline -eq 'true') {
                     # this special data source contains the definition of parameters
@@ -596,7 +585,7 @@ Param(
                     # layout
                     # style > style-rule > encoding
                     # semantic-values
-                    # datasource-dependencies (only for params?)
+                    # TODO datasource-dependencies (for params dependency)
                     # object-graph > objects > object
                     # object-graph > relationships > relationship
                     $columns = @()
@@ -688,8 +677,8 @@ Param(
                         $encodings += $encoding
                     }
                     $props = @{
-                        Name = $datasource_name;
-                        DisplayName = $datasource_name;
+                        Name = $_.name;
+                        DisplayName = $_.caption;
                         ConnectionType = ($_ | Select-Xml './connection/@class').Node.Value;
                         # TODO: what is the outcome when the data sources has multiple connections?
                         # TODO: Include a "Connection" PSObject property with properties specific to the type of connection (i.e. file path for CSVs and server for SQL Server, etc).
@@ -704,57 +693,84 @@ Param(
                 }
             }
 
-            $worksheets = @()
-            $xml | Select-Xml '/workbook/worksheets/worksheet' | Select-Object -ExpandProperty Node | ForEach-Object {
-                $props = @{
-                    Name = $_.Attributes['name'].Value;
-                    DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
-                    # TODO: Include list of referenced data sources.
-                }
-                $worksheets += New-Object PSObject -Property $props
-            }
-
-            $dashboards = @()
-            $xml | Select-Xml '/workbook/dashboards/dashboard' | Select-Object -ExpandProperty Node | ForEach-Object {
-                # TODO: This really slows down the whole cmdlet. Find a way to make the dashboards' Worksheets property lazy evaluated.
-                $dashboardWorksheets = @()
-                $_ | Select-Xml './zones//zone' | Select-Object -ExpandProperty Node | Where-Object { $null -eq $_.Attributes['type'] -and $null -ne $_.Attributes['name'] } | ForEach-Object {
-                    # Assume any zone with a @name but not a @type is a worksheet zone.
-                    $zone = $_
-                    $dashboardWorksheets += ($worksheets | Where-Object { $_.Name -eq $zone.Attributes['name'].Value })
-                }
-                $props = @{
-                    Name = $_.Attributes['name'].Value;
-                    DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
-                    Worksheets = $dashboardWorksheets;
-                }
-                $dashboards += New-Object PSObject -Property $props
-            }
-
-            $repository_location = $xml | Select-Xml '/workbook/repository-location' | Select-Object -ExpandProperty Node
             $props = @{
-                FileVersion = ($xml | Select-Xml '/workbook/@version').Node.Value;
-                FileOriginalVersion = ($xml | Select-Xml '/workbook/@original-version').Node.Value;
+                FileVersion = ($xml | Select-Xml "/$docType/@version").Node.Value;
+                FileOriginalVersion = ($xml | Select-Xml "/$docType/@original-version").Node.Value;
                 BuildVersion = ($xml | Select-Xml '//comment()[1]').Node.Value;
-                SourcePlatform = ($xml | Select-Xml '/workbook/@source-platform').Node.Value;
-                SourceBuild = ($xml | Select-Xml '/workbook/@source-build').Node.Value;
+                SourcePlatform = ($xml | Select-Xml "/$docType/@source-platform").Node.Value;
                 RepositoryLocation = @{
                     DerivedFrom=($repository_location.Attributes | Where-Object Name -eq 'derived-from').Value;
                     Id=($repository_location.Attributes | Where-Object Name -eq 'id').Value;
                     Path=($repository_location.Attributes | Where-Object Name -eq 'path').Value;
                     Revision=($repository_location.Attributes | Where-Object Name -eq 'revision').Value;
+                    Site=($repository_location.Attributes | Where-Object Name -eq 'site').Value;
                 };
-                Preferences = $preferences;
-                ColorPalettes = $color_palettes;
-                Styles = $styles;
-                Datasources = $datasources;
-                Parameters = $parameters;
-                # Actions = $actions;
-                # Windows = $windows;
-                Worksheets = $worksheets;
-                Dashboards = $dashboards;
-                # Stories = $stories;
                 DocumentXml = $xml;
+            }
+
+            if ($docType -eq 'workbook') {
+
+                $preferences = @()
+                $xml | Select-Xml '/workbook/preferences/preference' | Select-Object -ExpandProperty Node | ForEach-Object {
+                    $preferences += $_ | ConvertFrom-XmlAttr
+                }
+
+                $color_palettes = @()
+                $xml | Select-Xml '/workbook/preferences/color-palette' | Select-Object -ExpandProperty Node | ForEach-Object {
+                    $color_palette = $_ | ConvertFrom-XmlAttr
+                    $color_palette | Add-Member NoteProperty -Name Colors -Value $_.color
+                    $color_palettes += $color_palette
+                }
+
+                $styles = @()
+                $xml | Select-Xml '/workbook/style/style-rule' | Select-Object -ExpandProperty Node | ForEach-Object {
+                    $style_rule = $_ | ConvertFrom-XmlAttr
+                    if ($_.format) {
+                        $style_rule | Add-Member NoteProperty -Name Format -Value ($_.format | ConvertFrom-XmlAttr)
+                    }
+                    $styles += $style_rule
+                }
+                $worksheets = @()
+                $xml | Select-Xml '/workbook/worksheets/worksheet' | Select-Object -ExpandProperty Node | ForEach-Object {
+                    $props = @{
+                        Name = $_.Attributes['name'].Value;
+                        DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
+                        # TODO: Include list of referenced data sources.
+                    }
+                    $worksheets += New-Object PSObject -Property $props
+                }
+
+                $dashboards = @()
+                $xml | Select-Xml '/workbook/dashboards/dashboard' | Select-Object -ExpandProperty Node | ForEach-Object {
+                    # TODO: This really slows down the whole cmdlet. Find a way to make the dashboards' Worksheets property lazy evaluated.
+                    $dashboardWorksheets = @()
+                    $_ | Select-Xml './zones//zone' | Select-Object -ExpandProperty Node | Where-Object { $null -eq $_.Attributes['type'] -and $null -ne $_.Attributes['name'] } | ForEach-Object {
+                        # Assume any zone with a @name but not a @type is a worksheet zone.
+                        $zone = $_
+                        $dashboardWorksheets += ($worksheets | Where-Object { $_.Name -eq $zone.Attributes['name'].Value })
+                    }
+                    $props = @{
+                        Name = $_.Attributes['name'].Value;
+                        DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
+                        Worksheets = $dashboardWorksheets;
+                    }
+                    $dashboards += New-Object PSObject -Property $props
+                }
+
+                $props['SourceBuild'] = ($xml | Select-Xml '/workbook/@source-build').Node.Value;
+                $props['Preferences'] = $preferences
+                $props['ColorPalettes'] = $color_palettes;
+                $props['Styles'] = $styles;
+                $props['Worksheets'] = $worksheets;
+                $props['Dashboards'] = $dashboards;
+                # $props['Stories'] = $stories;
+                # $props['Actions'] = $actions;
+                # $props['Windows'] = $windows;
+                $props['Datasources'] = $datasources;
+                $props['Parameters'] = $parameters;
+
+            } elseif ($docType -eq 'datasource') {
+                $props['Datasources'] = $datasources;
             }
 
             if ($paths) {
