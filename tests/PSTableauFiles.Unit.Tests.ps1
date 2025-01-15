@@ -1,5 +1,5 @@
 BeforeDiscovery {
-    $script:ModuleName = "PSTableauFiles"
+    $script:ModuleName = 'PSTableauFiles'
     $script:ConfigFiles = Get-ChildItem -Path "./tests/config" -Filter "test_*.json" | Resolve-Path -Relative
     $script:twbFiles  = Get-ChildItem -Recurse -Path "./tests/assets" -Filter *.twb  -Exclude invalid.* | Resolve-Path -Relative
     $script:twbxFiles = Get-ChildItem -Recurse -Path "./tests/assets" -Filter *.twbx -Exclude invalid.* | Resolve-Path -Relative
@@ -45,6 +45,24 @@ Describe "Unit Tests for Get-TableauFileXml" -Tag Unit {
             Get-TableauFileXml -Path $_ | Should -BeOfType String
         }
     }
+    Context "Exceptions" {
+        It "Missing files should throw exception" {
+            {Get-TableauFileXml "./tests/assets/missing.twbx"} | Should -Throw -ExpectedMessage "File not found*"
+        }
+        It "Unknown file types should throw exception" {
+            {Get-TableauFileXml "./tests/assets/invalid.twby"} | Should -Throw -ExpectedMessage "Unknown file type*"
+        }
+        It "Invalid TWBX should throw exception" {
+            {Get-TableauFileXml "./tests/assets/invalid.twbx"} | Should -Throw -ExpectedMessage "Main XML file not found*"
+        }
+        It "Invalid Zip file should throw exception" {
+            $err = {Get-TableauFileXml "./tests/assets/invalid.zip.tdsx"} | Should -Throw -PassThru
+            $err.Exception.InnerException.Message | Should -Be "End of Central Directory record could not be found."
+        }
+    }
+}
+
+Describe "Unit Tests for Test-TableauZipFile" -Tag Unit {
     Context "Test Zip File .twbx" -ForEach $twbxFiles {
         It "<_> is valid Zip file" {
             InModuleScope PSTableauFiles -Parameters @{ file = $_ } {
@@ -61,25 +79,15 @@ Describe "Unit Tests for Get-TableauFileXml" -Tag Unit {
         }
     }
     Context "Exceptions" {
-        It "Missing files should throw exception" {
-            {Get-TableauFileXml "./tests/assets/missing.twbx"} | Should -Throw -ExpectedMessage "File not found*"
-        }
-        It "Unknown file types should throw exception" {
-            {Get-TableauFileXml "./tests/assets/invalid.twby"} | Should -Throw -ExpectedMessage "Unknown file type*"
-        }
-        It "Invalid TWBX should throw exception" {
-            {Get-TableauFileXml "./tests/assets/invalid.twbx"} | Should -Throw -ExpectedMessage "Main XML file not found*"
-        }
-        It "Invalid Zip file should throw exception" {
-            $err = {Get-TableauFileXml "./tests/assets/invalid.zip.tdsx"} | Should -Throw -PassThru
-            $err.Exception.InnerException.Message | Should -Be "End of Central Directory record could not be found."
-        }
         It "Test Zip File - invalid" {
             InModuleScope PSTableauFiles {
                 Test-TableauZipFile "./tests/assets/invalid.zip.tdsx" | Should -BeFalse
             }
         }
     }
+}
+
+Describe "Unit Tests for Get-TableauFileStructure" -Tag Unit {
     Context "Validate structure of .twbx file" -Tag Struc -ForEach $twbxFiles {
         It "Workbook structure contains workbook element - <_>" {
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook'
@@ -141,6 +149,11 @@ Describe "Unit Tests for Get-TableauFileXml" -Tag Unit {
             $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'datatype'
             # $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'caption' # not for all columns
         }
+    }
+}
+
+Describe "Unit Tests for Get-TableauFileObject" -Tag Unit {
+    Context "Validate structure of .twbx file" -Tag Struc -ForEach $twbxFiles {
         It "Check workbook object from .twbx file - <_>" {
             $result = Get-TableauFileObject -Path $_
             $result.Length | Should -Be 1

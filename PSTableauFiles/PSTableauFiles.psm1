@@ -312,22 +312,24 @@ Param(
     [Parameter(Mandatory,Position=0,ValueFromPipeline)]
     [string]$Name
 )
-    if ($Name -eq '[:Measure Names]') {
-        return 'Measure Names'
-    } else {
-        return ($Name -ireplace "^\[|\]$", "")
+    process {
+        if ($Name -eq '[:Measure Names]') {
+            'Measure Names'
+        } else {
+            $Name -ireplace "^\[|\]$", ""
+        }
     }
 }
 
 function ConvertTo-TableauDisplayFormula {
 Param(
-    [Parameter(Mandatory,Position=0,ValueFromPipeline)]
+    [Parameter(Mandatory)]
     [string]$Formula,
     [Parameter(Position=1)]
     [hashtable]$Mapping
 )
     if ($Mapping) {
-        # TODO regex support for nested square brackets in the names
+        # TODO regex support for nested square brackets in the names e.g. https://stackoverflow.com/questions/69373904/regex-with-nested-square-brackets
         # TODO regex support for comments - don't replace matches within the commented parts
         # PS 5.1: [regex]::Replace($Formula,'(\[\w\]\.\[\w\])', {param($match) $Mapping[$match.Value] })
         # PS 6+ : $Formula -replace '(\[\w+\])', { if ($Mapping.ContainsKey($_.Value)) {$Mapping[$_.Value]} else {$_.Value} }
@@ -381,49 +383,53 @@ Param(
     [Parameter(Mandatory,Position=0,ValueFromPipeline)][ValidateNotNullOrEmpty()]
     [System.Xml.XmlElement]$Element
 )
-    $PSObject = New-Object PSObject
-    foreach ($attr in @($Element.Attributes)) {
-        # convert attribute name from kebab case to pascal case
-        $pc_name = [regex]::replace($attr.Name.ToLower(), '(^|-)(.)', { $args[0].Groups[2].Value.ToUpper()})
-        $PSObject | Add-Member NoteProperty -Name $pc_name -Value $attr.Value
+    process {
+        $PSObject = New-Object PSObject
+        foreach ($attr in @($Element.Attributes)) {
+            # convert attribute name from kebab case to pascal case
+            $pc_name = [regex]::replace($attr.Name.ToLower(), '(^|-)(.)', { $args[0].Groups[2].Value.ToUpper()})
+            $PSObject | Add-Member NoteProperty -Name $pc_name -Value $attr.Value
+        }
+        $PSObject
     }
-    $PSObject
 }
 
-function Get-TableauParamProps {
+function Get-TableauParamObject {
 Param(
     [Parameter(Mandatory,Position=0,ValueFromPipeline)][ValidateNotNullOrEmpty()]
     [System.Xml.XmlElement]$Element
 )
-    $props = @{
-        Name = $Element.Attributes['name'].Value;
-        DisplayName = if ($Element.Attributes['caption']) { $Element.Attributes['caption'].Value } else { $Element.Attributes['name'].Value | ConvertTo-TableauColumnDisplayName };
-        DataType = $Element.Attributes['datatype'].Value;
-        DomainType = $Element.Attributes['param-domain-type'].Value;
-        Hidden = if ($Element.Attributes['hidden']) { $Element.Attributes['hidden'].Value -eq 'true' } else { $false };
-        Value = $Element.Attributes['value'].Value;
-    }
-    if ($props['DomainType'] -eq 'range') {
-        if ($Element.range) {
-            $props['Range'] = $Element.range | ConvertFrom-XmlAttr
+    process {
+        $props = @{
+            Name = $Element.Attributes['name'].Value;
+            DisplayName = if ($Element.Attributes['caption']) { $Element.Attributes['caption'].Value } else { $Element.Attributes['name'].Value | ConvertTo-TableauColumnDisplayName };
+            DataType = $Element.Attributes['datatype'].Value;
+            DomainType = $Element.Attributes['param-domain-type'].Value;
+            Hidden = if ($Element.Attributes['hidden']) { $Element.Attributes['hidden'].Value -eq 'true' } else { $false };
+            Value = $Element.Attributes['value'].Value;
         }
-    } elseif ($props['DomainType'] -eq 'list') {
-        $param_value_list = @()
-        $Element | Select-Xml './members/member' | Select-Object -ExpandProperty Node | ForEach-Object {
-            $param_value_list += $Element | ConvertFrom-XmlAttr
+        if ($props['DomainType'] -eq 'range') {
+            if ($Element.range) {
+                $props['Range'] = $Element.range | ConvertFrom-XmlAttr
+            }
+        } elseif ($props['DomainType'] -eq 'list') {
+            $param_value_list = @()
+            $Element | Select-Xml './members/member' | Select-Object -ExpandProperty Node | ForEach-Object {
+                $param_value_list += $Element | ConvertFrom-XmlAttr
+            }
+            if ($param_value_list) {
+                $props['ValueList'] = $param_value_list
+            }
+            # the "aliases" element is ignored, because the information is already contained in "members"
         }
-        if ($param_value_list) {
-            $props['ValueList'] = $param_value_list
+        if ($Element.Attributes['_.fcp.ParameterDefaultValues.true...default-value-field']) {
+            $props['DevaultValueField'] = $Element.Attributes['_.fcp.ParameterDefaultValues.true...default-value-field'].Value
         }
-        # the "aliases" element is ignored, because the information is already contained in "members"
+        if ($Element.Attributes['_.fcp.ParameterDefaultValues.true...source-field']) {
+            $props['ValueListSourceField'] = $Element.Attributes['_.fcp.ParameterDefaultValues.true...source-field'].Value
+        }
+        $props
     }
-    if ($Element.Attributes['_.fcp.ParameterDefaultValues.true...default-value-field']) {
-        $props['DevaultValueField'] = $Element.Attributes['_.fcp.ParameterDefaultValues.true...default-value-field'].Value
-    }
-    if ($Element.Attributes['_.fcp.ParameterDefaultValues.true...source-field']) {
-        $props['ValueListSourceField'] = $Element.Attributes['_.fcp.ParameterDefaultValues.true...source-field'].Value
-    }
-    return $props
 }
 
 function Get-TableauFileStructure {
@@ -592,7 +598,7 @@ Param(
                 if ($datasource_name -eq 'Parameters' -and $_.hasconnection -eq 'false' -and $_.inline -eq 'true') {
                     # this special data source contains the definition of parameters
                     $_ | Select-Xml './column' | Select-Object -ExpandProperty Node | ForEach-Object {
-                        $parameters += New-Object PSObject -Property ($_ | Get-TableauParamProps)
+                        $parameters += New-Object PSObject -Property ($_ | Get-TableauParamObject)
                     }
                 } else {
                     # Following sub-elements are present under datasource:
@@ -699,7 +705,7 @@ Param(
                     $_ | Select-Xml './datasource-dependencies' | Select-Object -ExpandProperty Node | ForEach-Object {
                         if ($_.datasource -eq 'Parameters') {
                             $_ | Select-Xml './column' | Select-Object -ExpandProperty Node | ForEach-Object {
-                                $parameter_dependencies += New-Object PSObject -Property ($_ | Get-TableauParamProps)
+                                $parameter_dependencies += New-Object PSObject -Property ($_ | Get-TableauParamObject)
                             }
                         } else {
                             # TODO
@@ -737,9 +743,9 @@ Param(
                 # $ref_mapping[$parameter.Name] = '[' + $parameter.DisplayName + ']' # referencing by name without "[Parameters]." is not possible
                 $ref_mapping['[Parameters].' + $parameter.Name] = '[Parameters].[' + $parameter.DisplayName + ']'
             }
-            $ref_mapping.GetEnumerator() | ForEach-Object {
-                Write-Debug ($_.Key + '   ...   ' + $_.Value)
-            }
+            # $ref_mapping.GetEnumerator() | ForEach-Object {
+            #     Write-Debug ($_.Key + '   ...   ' + $_.Value)
+            # }
             foreach ($datasource in $datasources) {
                 foreach ($column in $datasource.Columns) {
                     if ($column['Formula']) {
@@ -765,10 +771,15 @@ Param(
 
             if ($doc_type -eq 'workbook') {
 
+                $props['SourceBuild'] = ($xml | Select-Xml '/workbook/@source-build').Node.Value;
+                $props['Datasources'] = $datasources;
+                $props['Parameters'] = $parameters;
+
                 $preferences = @()
                 $xml | Select-Xml '/workbook/preferences/preference' | Select-Object -ExpandProperty Node | ForEach-Object {
                     $preferences += $_ | ConvertFrom-XmlAttr
                 }
+                $props['Preferences'] = $preferences
 
                 $color_palettes = @()
                 $xml | Select-Xml '/workbook/preferences/color-palette' | Select-Object -ExpandProperty Node | ForEach-Object {
@@ -776,6 +787,7 @@ Param(
                     $color_palette | Add-Member NoteProperty -Name Colors -Value $_.color
                     $color_palettes += $color_palette
                 }
+                $props['ColorPalettes'] = $color_palettes;
 
                 $styles = @()
                 $xml | Select-Xml '/workbook/style/style-rule' | Select-Object -ExpandProperty Node | ForEach-Object {
@@ -785,15 +797,17 @@ Param(
                     }
                     $styles += $style_rule
                 }
+                $props['Styles'] = $styles;
+
                 $worksheets = @()
                 $xml | Select-Xml '/workbook/worksheets/worksheet' | Select-Object -ExpandProperty Node | ForEach-Object {
-                    $props = @{
+                    $worksheets += New-Object PSObject -Property @{
                         Name = $_.Attributes['name'].Value;
                         DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
                         # TODO: Include list of referenced data sources.
                     }
-                    $worksheets += New-Object PSObject -Property $props
                 }
+                $props['Worksheets'] = $worksheets;
 
                 $dashboards = @()
                 $xml | Select-Xml '/workbook/dashboards/dashboard' | Select-Object -ExpandProperty Node | ForEach-Object {
@@ -804,25 +818,19 @@ Param(
                         $zone = $_
                         $dashboardWorksheets += ($worksheets | Where-Object { $_.Name -eq $zone.Attributes['name'].Value })
                     }
-                    $props = @{
+                    $dashboards += New-Object PSObject -Property @{
                         Name = $_.Attributes['name'].Value;
                         DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
                         Worksheets = $dashboardWorksheets;
                     }
-                    $dashboards += New-Object PSObject -Property $props
                 }
-
-                $props['SourceBuild'] = ($xml | Select-Xml '/workbook/@source-build').Node.Value;
-                $props['Preferences'] = $preferences
-                $props['ColorPalettes'] = $color_palettes;
-                $props['Styles'] = $styles;
-                $props['Worksheets'] = $worksheets;
                 $props['Dashboards'] = $dashboards;
+
                 # $props['Stories'] = $stories;
                 # $props['Actions'] = $actions;
                 # $props['Windows'] = $windows;
-                $props['Datasources'] = $datasources;
-                $props['Parameters'] = $parameters;
+                # $props['DataGraph'] = $datagraph;
+                # $props['Shapes'] = $shapes;
 
             } elseif ($doc_type -eq 'datasource') {
                 $props['Datasources'] = $datasources;
