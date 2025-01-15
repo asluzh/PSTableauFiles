@@ -830,7 +830,22 @@ Param(
                 # $props['Actions'] = $actions;
                 # $props['Windows'] = $windows;
                 # $props['DataGraph'] = $datagraph;
-                # $props['Shapes'] = $shapes;
+                $shapes = @()
+                $xml | Select-Xml '/workbook/external/shapes/shape' | Select-Object -ExpandProperty Node | ForEach-Object {
+                    $shape = $_ | ConvertFrom-XmlAttr
+                    $shape | Add-Member NoteProperty -Name Image -Value ([System.Convert]::FromBase64String($_.InnerText))
+                    $shapes += $shape
+                }
+                $props['Shapes'] = $shapes;
+                $thumbnails = @()
+                $xml | Select-Xml '/workbook/thumbnails/thumbnail' | Select-Object -ExpandProperty Node | ForEach-Object {
+                    $thumbnail = $_ | ConvertFrom-XmlAttr
+                    $thumbnail | Add-Member NoteProperty -Name Image -Value ([System.Convert]::FromBase64String($_.InnerText))
+                    $thumbnails += $thumbnail
+                }
+                $props['Thumbnails'] = $thumbnails;
+                # explain-data
+                # _.fcp.ExplainData_AuthorControls.true...explain-data
 
             } elseif ($doc_type -eq 'datasource') {
                 $props['Datasources'] = $datasources;

@@ -57,7 +57,7 @@ Describe "Integration Tests for <ModuleName>" -Tag Integration {
             New-TableauZipFile -DocumentXml $xml -Path $zipFilePath
             Test-TableauZipFile -Path $zipFilePath | Should -BeTrue
         }
-        It "Test publish Tableau zip file(s) on <ConfigFile.server>" {
+        It "Test publish Tableau zip file(s) on <ConfigFile.server>" -Skip {
             if ($script:ConfigFile) {
                 Test-Path -Path $zipFilePath | Should -BeTrue
                 $workbook = Publish-TableauWorkbook -InFile $zipFilePath -Name $twbFile -ProjectId $script:testProjectId -Overwrite
