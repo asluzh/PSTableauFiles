@@ -319,14 +319,36 @@ Param(
     }
 }
 
+function ConvertTo-TableauDisplayFormula {
+Param(
+    [Parameter(Mandatory,Position=0,ValueFromPipeline)]
+    [string]$Formula,
+    [Parameter(Position=1)]
+    [hashtable]$Mapping
+)
+    if ($Mapping) {
+        # TODO regex support for nested square brackets in the names
+        # TODO regex support for comments - don't replace matches within the commented parts
+        # PS 5.1: [regex]::Replace($Formula,'(\[\w\]\.\[\w\])', {param($match) $Mapping[$match.Value] })
+        # PS 6+ : $Formula -replace '(\[\w+\])', { if ($Mapping.ContainsKey($_.Value)) {$Mapping[$_.Value]} else {$_.Value} }
+        return [regex]::Replace($Formula, '((\[[^]]+\]\.\[[^]]+\])|(\[[^]]+\]))', {
+            param($match)
+            if ($Mapping.ContainsKey($match.Value)) {
+                $Mapping[$match.Value]
+            } else {
+                $match.Value
+            } })
+    } else {
+        return $Formula
+    }
+}
+
 # function ConvertFrom-Xml {
 # <#
 # .SYNOPSIS
 # Converts am XML element to PSObject representation
-
 # .EXAMPLE
 # $xml = ConvertTo-Xml (get-content 1.json | ConvertFrom-Json) -Depth 4 -NoTypeInformation -as String
-
 # .EXAMPLE
 # ConvertFrom-Xml ([xml]($xml)).Objects.Object | ConvertTo-Json
 # #>
@@ -336,7 +358,6 @@ Param(
 # )
 #     if ($Element.Property) {
 #         $PSObject = New-Object PSObject
-
 #         foreach ($Property in @($Element.Property)) {
 #             Write-Verbose $Property
 #             if ($Property.Property.Name -like 'Property') {
@@ -367,6 +388,42 @@ Param(
         $PSObject | Add-Member NoteProperty -Name $pc_name -Value $attr.Value
     }
     $PSObject
+}
+
+function Get-TableauParamProps {
+Param(
+    [Parameter(Mandatory,Position=0,ValueFromPipeline)][ValidateNotNullOrEmpty()]
+    [System.Xml.XmlElement]$Element
+)
+    $props = @{
+        Name = $Element.Attributes['name'].Value;
+        DisplayName = if ($Element.Attributes['caption']) { $Element.Attributes['caption'].Value } else { $Element.Attributes['name'].Value | ConvertTo-TableauColumnDisplayName };
+        DataType = $Element.Attributes['datatype'].Value;
+        DomainType = $Element.Attributes['param-domain-type'].Value;
+        Hidden = if ($Element.Attributes['hidden']) { $Element.Attributes['hidden'].Value -eq 'true' } else { $false };
+        Value = $Element.Attributes['value'].Value;
+    }
+    if ($props['DomainType'] -eq 'range') {
+        if ($Element.range) {
+            $props['Range'] = $Element.range | ConvertFrom-XmlAttr
+        }
+    } elseif ($props['DomainType'] -eq 'list') {
+        $param_value_list = @()
+        $Element | Select-Xml './members/member' | Select-Object -ExpandProperty Node | ForEach-Object {
+            $param_value_list += $Element | ConvertFrom-XmlAttr
+        }
+        if ($param_value_list) {
+            $props['ValueList'] = $param_value_list
+        }
+        # the "aliases" element is ignored, because the information is already contained in "members"
+    }
+    if ($Element.Attributes['_.fcp.ParameterDefaultValues.true...default-value-field']) {
+        $props['DevaultValueField'] = $Element.Attributes['_.fcp.ParameterDefaultValues.true...default-value-field'].Value
+    }
+    if ($Element.Attributes['_.fcp.ParameterDefaultValues.true...source-field']) {
+        $props['ValueListSourceField'] = $Element.Attributes['_.fcp.ParameterDefaultValues.true...source-field'].Value
+    }
+    return $props
 }
 
 function Get-TableauFileStructure {
@@ -518,14 +575,14 @@ Param(
         $i = 0
         foreach ($xml in $DocumentXml) {
 
-            $docType = $xml.DocumentElement.LocalName
+            $doc_type = $xml.DocumentElement.LocalName
             $datasources = @()
             $parameters = @()
 
-            if ($docType -eq 'workbook') {
+            if ($doc_type -eq 'workbook') {
                 $repository_location = $xml | Select-Xml '/workbook/repository-location' | Select-Object -ExpandProperty Node
                 $datasources_xml = $xml | Select-Xml '/workbook/datasources/datasource' | Select-Object -ExpandProperty Node
-            } elseif ($docType -eq 'datasource') {
+            } elseif ($doc_type -eq 'datasource') {
                 $repository_location = $xml | Select-Xml '/datasource/repository-location' | Select-Object -ExpandProperty Node
                 $datasources_xml = $xml | Select-Xml '/datasource' | Select-Object -ExpandProperty Node
             }
@@ -535,45 +592,7 @@ Param(
                 if ($datasource_name -eq 'Parameters' -and $_.hasconnection -eq 'false' -and $_.inline -eq 'true') {
                     # this special data source contains the definition of parameters
                     $_ | Select-Xml './column' | Select-Object -ExpandProperty Node | ForEach-Object {
-                        $props = @{
-                            Name = $_.Attributes['name'].Value;
-                            DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value | ConvertTo-TableauColumnDisplayName };
-                            DataType = $_.Attributes['datatype'].Value;
-                            DomainType = $_.Attributes['param-domain-type'].Value;
-                            Hidden = if ($_.Attributes['hidden']) { $_.Attributes['hidden'].Value -eq 'true' } else { $false };
-                            Value = $_.Attributes['value'].Value;
-                            # ValueDisplayName = if ($_.Attributes['alias']) { $_.Attributes['alias'].Value } else { $_.Attributes['value'].Value };
-                        }
-                        if ($props['DomainType'] -eq 'range') {
-                            if ($_.range) {
-                                $props['Range'] = $_.range | ConvertFrom-XmlAttr
-                            }
-                            # New-Object PSObject -Property @{
-                            #     Min = $_.range.min;
-                            #     Max = $_.range.max;
-                            #     Granularity = $_.range.granularity;
-                            # }
-                        } elseif ($props['DomainType'] -eq 'list') {
-                            $param_value_list = @()
-                            $_ | Select-Xml './members/member' | Select-Object -ExpandProperty Node | ForEach-Object {
-                                $param_value_list += $_ | ConvertFrom-XmlAttr
-                                # New-Object PSObject -Property @{
-                                #     Value = $_.Attributes['value'].Value;
-                                #     Alias = $_.Attributes['alias'].Value;
-                                # }
-                            }
-                            if ($param_value_list) {
-                                $props['ValueList'] = $param_value_list
-                            }
-                            # the "aliases" element is ignored, because the information is already contained in "members"
-                        }
-                        if ($_.Attributes['_.fcp.ParameterDefaultValues.true...default-value-field']) {
-                            $props['DevaultValueField'] = $_.Attributes['_.fcp.ParameterDefaultValues.true...default-value-field'].Value
-                        }
-                        if ($_.Attributes['_.fcp.ParameterDefaultValues.true...source-field']) {
-                            $props['ValueListSourceField'] = $_.Attributes['_.fcp.ParameterDefaultValues.true...source-field'].Value
-                        }
-                        $parameters += New-Object PSObject -Property $props
+                        $parameters += New-Object PSObject -Property ($_ | Get-TableauParamProps)
                     }
                 } else {
                     # Following sub-elements are present under datasource:
@@ -585,7 +604,7 @@ Param(
                     # layout
                     # style > style-rule > encoding
                     # semantic-values
-                    # TODO datasource-dependencies (for params dependency)
+                    # datasource-dependencies (for params dependency)
                     # object-graph > objects > object
                     # object-graph > relationships > relationship
                     $columns = @()
@@ -676,9 +695,21 @@ Param(
                         }
                         $encodings += $encoding
                     }
+                    $parameter_dependencies = @()
+                    $_ | Select-Xml './datasource-dependencies' | Select-Object -ExpandProperty Node | ForEach-Object {
+                        if ($_.datasource -eq 'Parameters') {
+                            $_ | Select-Xml './column' | Select-Object -ExpandProperty Node | ForEach-Object {
+                                $parameter_dependencies += New-Object PSObject -Property ($_ | Get-TableauParamProps)
+                            }
+                        } else {
+                            # TODO
+                            # $dependency = $_ | ConvertFrom-XmlAttr
+                            # $datasource_dependencies += $dependency
+                        }
+                    }
                     $props = @{
                         Name = $_.name;
-                        DisplayName = $_.caption;
+                        DisplayName = if ($_.caption) { $_.caption } else { $_.name };
                         ConnectionType = ($_ | Select-Xml './connection/@class').Node.Value;
                         # TODO: what is the outcome when the data sources has multiple connections?
                         # TODO: Include a "Connection" PSObject property with properties specific to the type of connection (i.e. file path for CSVs and server for SQL Server, etc).
@@ -688,16 +719,40 @@ Param(
                         Folders = $folders;
                         Hierarchies = $drillpaths;
                         Encodings = $encodings;
+                        ParameterDependencies = $parameter_dependencies;
                     }
                     $datasources += New-Object PSObject -Property $props
                 }
             }
 
+            # TODO translate formula references into display names
+            $ref_mapping = @{}
+            foreach ($datasource in $datasources) {
+                foreach ($column in $datasource.Columns) {
+                    $ref_mapping[$column.Name] = '[' + $column.DisplayName + ']'
+                    $ref_mapping['[' + $datasource.Name + '].' + $column.Name] = '[' + $datasource.DisplayName + '].[' + $column.DisplayName + ']'
+                }
+            }
+            foreach ($parameter in $parameters) {
+                # $ref_mapping[$parameter.Name] = '[' + $parameter.DisplayName + ']' # referencing by name without "[Parameters]." is not possible
+                $ref_mapping['[Parameters].' + $parameter.Name] = '[Parameters].[' + $parameter.DisplayName + ']'
+            }
+            $ref_mapping.GetEnumerator() | ForEach-Object {
+                Write-Debug ($_.Key + '   ...   ' + $_.Value)
+            }
+            foreach ($datasource in $datasources) {
+                foreach ($column in $datasource.Columns) {
+                    if ($column['Formula']) {
+                        $column['DisplayFormula'] = ConvertTo-TableauDisplayFormula -Formula $column['Formula'] -Mapping $ref_mapping
+                    }
+                }
+            }
+
             $props = @{
-                FileVersion = ($xml | Select-Xml "/$docType/@version").Node.Value;
-                FileOriginalVersion = ($xml | Select-Xml "/$docType/@original-version").Node.Value;
+                FileVersion = ($xml | Select-Xml "/$doc_type/@version").Node.Value;
+                FileOriginalVersion = ($xml | Select-Xml "/$doc_type/@original-version").Node.Value;
                 BuildVersion = ($xml | Select-Xml '//comment()[1]').Node.Value;
-                SourcePlatform = ($xml | Select-Xml "/$docType/@source-platform").Node.Value;
+                SourcePlatform = ($xml | Select-Xml "/$doc_type/@source-platform").Node.Value;
                 RepositoryLocation = @{
                     DerivedFrom=($repository_location.Attributes | Where-Object Name -eq 'derived-from').Value;
                     Id=($repository_location.Attributes | Where-Object Name -eq 'id').Value;
@@ -708,7 +763,7 @@ Param(
                 DocumentXml = $xml;
             }
 
-            if ($docType -eq 'workbook') {
+            if ($doc_type -eq 'workbook') {
 
                 $preferences = @()
                 $xml | Select-Xml '/workbook/preferences/preference' | Select-Object -ExpandProperty Node | ForEach-Object {
@@ -769,7 +824,7 @@ Param(
                 $props['Datasources'] = $datasources;
                 $props['Parameters'] = $parameters;
 
-            } elseif ($docType -eq 'datasource') {
+            } elseif ($doc_type -eq 'datasource') {
                 $props['Datasources'] = $datasources;
             }
 
