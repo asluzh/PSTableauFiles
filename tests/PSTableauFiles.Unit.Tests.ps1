@@ -139,6 +139,7 @@ Describe "Unit Tests for Get-TableauFileStructure" -Tag Unit {
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/datasources' -XmlElements
             $result.Elements.Length | Should -BeGreaterOrEqual 1
             $result.Elements | ForEach-Object { $_.get_name() } | Should -Contain 'datasource'
+            $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('datasource')
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/datasources/datasource' -XmlElements -XmlAttributes
             $result.Elements.Length | Should -BeGreaterOrEqual 1
             $result.Elements | ForEach-Object { $_.get_name() } | Should -Contain 'connection'
@@ -168,6 +169,51 @@ Describe "Unit Tests for Get-TableauFileStructure" -Tag Unit {
             $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'type'
             $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'datatype'
             # $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'caption' # not for all columns
+        }
+        It "Workbook structure (workbook/*) contains known elements and attributes - <_>" {
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/worksheets' -XmlElements
+            $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('worksheet')
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/worksheets/worksheet' -XmlElements
+            $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('repository-location','simple-id',
+                'table','layout-options')
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/dashboards' -XmlElements
+            if ($result.Elements) {
+                $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('dashboard')
+            }
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/dashboards/dashboard' -XmlElements
+            if ($result.Elements) {
+                $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('repository-location','simple-id',
+                    'layout-options','style','size','datasources','datasource-dependencies',
+                    'zones','devicelayouts')
+            }
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/windows' -XmlElements
+            if ($result.Elements) {
+                $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('window')
+            }
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/windows/window' -XmlElements
+            $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('simple-id',
+                'active','viewpoints','viewpoint','cards')
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/actions' -XmlElements
+            if ($result.Elements) {
+                $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('action','edit-parameter-action','nav-action','edit-group-action',
+                'datasources','datasource-dependencies')
+            }
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/thumbnails' -XmlElements
+            if ($result.Elements) {
+                $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('thumbnail')
+            }
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/external' -XmlElements
+            if ($result.Elements) {
+                $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('shapes')
+            }
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/style' -XmlElements
+            if ($result.Elements) {
+                $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('style-rule','_.fcp.MarkAnimation.true...style-rule')
+            }
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/referenced-extensions' -XmlElements
+            if ($result.Elements) {
+                $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('referenced-extension','_.fcp.VizExtensions.true...referenced-extension')
+            }
         }
     }
 }
