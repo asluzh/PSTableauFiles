@@ -413,12 +413,12 @@ Param(
                 $props['Range'] = $Element.range | ConvertFrom-XmlAttr
             }
         } elseif ($props['DomainType'] -eq 'list') {
-            $param_value_list = @()
-            $Element | Select-Xml './members/member' | Select-Object -ExpandProperty Node | ForEach-Object {
-                $param_value_list += $Element | ConvertFrom-XmlAttr
+            $param_value_list = $Element | Select-Xml './members/member' | Select-Object -ExpandProperty Node | ForEach-Object {
+                $_ | ConvertFrom-XmlAttr
             }
             if ($param_value_list) {
                 $props['ValueList'] = $param_value_list
+                # Write-Debug ($param_value_list | ConvertTo-Json)
             }
             # the "aliases" element is ignored, because the information is already contained in "members"
         }
@@ -512,7 +512,7 @@ Param(
                     # .get_name()
                 }
                 if ($XmlAttributes) {
-                    $props['Attributes'] = $_.Attributes.GetEnumerator() | ForEach-Object { $_ } # @{name=$_.name; value=$_.value}
+                    $props['Attributes'] = $_.Attributes.GetEnumerator() | Write-Output # ForEach-Object { @{name=$_.name; value=$_.value} }
                     # .get_attributes().GetEnumerator() - name,value
                 }
                 $props['XmlElement'] = $_
@@ -582,9 +582,6 @@ Param(
         foreach ($xml in $DocumentXml) {
 
             $doc_type = $xml.DocumentElement.LocalName
-            $datasources = @()
-            $parameters = @()
-
             if ($doc_type -eq 'workbook') {
                 $repository_location = $xml | Select-Xml '/workbook/repository-location' | Select-Object -ExpandProperty Node
                 $datasources_xml = $xml | Select-Xml '/workbook/datasources/datasource' | Select-Object -ExpandProperty Node
@@ -593,7 +590,8 @@ Param(
                 $datasources_xml = $xml | Select-Xml '/datasource' | Select-Object -ExpandProperty Node
             }
 
-            $datasources_xml | ForEach-Object {
+            $parameters = @()
+            $datasources = $datasources_xml | ForEach-Object {
                 $datasource_name = $_.name
                 if ($datasource_name -eq 'Parameters' -and $_.hasconnection -eq 'false' -and $_.inline -eq 'true') {
                     # this special data source contains the definition of parameters
@@ -613,8 +611,7 @@ Param(
                     # datasource-dependencies (for params dependency)
                     # object-graph > objects > object
                     # object-graph > relationships > relationship
-                    $columns = @()
-                    $_ | Select-Xml './column' | Select-Object -ExpandProperty Node | ForEach-Object {
+                    $columns = $_ | Select-Xml './column' | Select-Object -ExpandProperty Node | ForEach-Object {
                         $column = @{
                             Name = $_.Attributes['name'].Value;
                             DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value | ConvertTo-TableauColumnDisplayName };
@@ -630,15 +627,13 @@ Param(
                         if ($_.HasChildNodes) {
                             $column['Formula'] = ($_ | Select-Xml './calculation/@formula').Node.Value;
                         }
-                        $columns += $column
+                        $column
                     }
-                    $cols = @()
-                    $_ | Select-Xml './connection/cols/map' | Select-Object -ExpandProperty Node | ForEach-Object {
-                        $cols += $_ | ConvertFrom-XmlAttr
+                    $cols = $_ | Select-Xml './connection/cols/map' | Select-Object -ExpandProperty Node | ForEach-Object {
+                        $_ | ConvertFrom-XmlAttr
                     }
-                    $metadata_records = @()
-                    $_ | Select-Xml './connection/metadata-records/metadata-record' | Select-Object -ExpandProperty Node | ForEach-Object {
-                        $metadata_records += $_ | ConvertFrom-XmlAttr
+                    $metadata_records = $_ | Select-Xml './connection/metadata-records/metadata-record' | Select-Object -ExpandProperty Node | ForEach-Object {
+                        $_ | ConvertFrom-XmlAttr
                     }
                     # complement missing columns from worksheet metadata - only for "cols"
                     $cols | ForEach-Object {
@@ -670,25 +665,21 @@ Param(
                             }
                         }
                     }
-                    $folders = @()
-                    $_ | Select-Xml './folders-common/folder' | Select-Object -ExpandProperty Node | ForEach-Object {
-                        $folders += @{
+                    $folders = $_ | Select-Xml './folders-common/folder' | Select-Object -ExpandProperty Node | ForEach-Object {
+                        @{
                             Name = $_.name;
                             FolderItems = $_.'folder-item' | ForEach-Object {
                                 $_ | ConvertFrom-XmlAttr;
                             }
                         }
                     }
-                    $drillpaths = @()
-                    $_ | Select-Xml './drill-paths/drill-path' | Select-Object -ExpandProperty Node | ForEach-Object {
-                        $drillpath = @{
+                    $drillpaths = $_ | Select-Xml './drill-paths/drill-path' | Select-Object -ExpandProperty Node | ForEach-Object {
+                        @{
                             Name = $_.name;
                             HierarchyItems = $_.field; #| ForEach-Object { $_ };
                         }
-                        $drillpaths += $drillpath
                     }
-                    $encodings = @()
-                    $_ | Select-Xml './style/style-rule/encoding' | Select-Object -ExpandProperty Node | ForEach-Object {
+                    $encodings = $_ | Select-Xml './style/style-rule/encoding' | Select-Object -ExpandProperty Node | ForEach-Object {
                         $encoding = $_ | ConvertFrom-XmlAttr
                         if ($_.map) {
                             $encoding_mapping = $_ | Select-Xml './map' | Select-Object -ExpandProperty Node | ForEach-Object {
@@ -699,13 +690,12 @@ Param(
                             }
                             $encoding | Add-Member NoteProperty -Name Mapping -Value $encoding_mapping
                         }
-                        $encodings += $encoding
+                        $encoding
                     }
-                    $parameter_dependencies = @()
-                    $_ | Select-Xml './datasource-dependencies' | Select-Object -ExpandProperty Node | ForEach-Object {
+                    $parameter_dependencies = $_ | Select-Xml './datasource-dependencies' | Select-Object -ExpandProperty Node | ForEach-Object {
                         if ($_.datasource -eq 'Parameters') {
                             $_ | Select-Xml './column' | Select-Object -ExpandProperty Node | ForEach-Object {
-                                $parameter_dependencies += New-Object PSObject -Property ($_ | Get-TableauParamObject)
+                                $_ | Get-TableauParamObject
                             }
                         } else {
                             # TODO
@@ -727,11 +717,11 @@ Param(
                         Encodings = $encodings;
                         ParameterDependencies = $parameter_dependencies;
                     }
-                    $datasources += New-Object PSObject -Property $props
+                    $props
                 }
             }
 
-            # TODO translate formula references into display names
+            # translate formula references into display names
             $ref_mapping = @{}
             foreach ($datasource in $datasources) {
                 foreach ($column in $datasource.Columns) {
@@ -770,38 +760,33 @@ Param(
             }
 
             if ($doc_type -eq 'workbook') {
-
                 $props['SourceBuild'] = ($xml | Select-Xml '/workbook/@source-build').Node.Value;
                 $props['Datasources'] = $datasources;
                 $props['Parameters'] = $parameters;
 
-                $preferences = @()
-                $xml | Select-Xml '/workbook/preferences/preference' | Select-Object -ExpandProperty Node | ForEach-Object {
-                    $preferences += $_ | ConvertFrom-XmlAttr
+                $preferences = $xml | Select-Xml '/workbook/preferences/preference' | Select-Object -ExpandProperty Node | ForEach-Object {
+                    $_ | ConvertFrom-XmlAttr
                 }
                 $props['Preferences'] = $preferences
 
-                $color_palettes = @()
-                $xml | Select-Xml '/workbook/preferences/color-palette' | Select-Object -ExpandProperty Node | ForEach-Object {
+                $color_palettes = $xml | Select-Xml '/workbook/preferences/color-palette' | Select-Object -ExpandProperty Node | ForEach-Object {
                     $color_palette = $_ | ConvertFrom-XmlAttr
                     $color_palette | Add-Member NoteProperty -Name Colors -Value $_.color
-                    $color_palettes += $color_palette
+                    $color_palette
                 }
                 $props['ColorPalettes'] = $color_palettes;
 
-                $styles = @()
-                $xml | Select-Xml '/workbook/style/style-rule' | Select-Object -ExpandProperty Node | ForEach-Object {
+                $styles = $xml | Select-Xml '/workbook/style/style-rule' | Select-Object -ExpandProperty Node | ForEach-Object {
                     $style_rule = $_ | ConvertFrom-XmlAttr
                     if ($_.format) {
                         $style_rule | Add-Member NoteProperty -Name Format -Value ($_.format | ConvertFrom-XmlAttr)
                     }
-                    $styles += $style_rule
+                    $style_rule
                 }
                 $props['Styles'] = $styles;
 
-                $worksheets = @()
-                $xml | Select-Xml '/workbook/worksheets/worksheet' | Select-Object -ExpandProperty Node | ForEach-Object {
-                    $worksheets += New-Object PSObject -Property @{
+                $worksheets = $xml | Select-Xml '/workbook/worksheets/worksheet' | Select-Object -ExpandProperty Node | ForEach-Object {
+                    @{
                         Name = $_.Attributes['name'].Value;
                         DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
                         # TODO: Include list of referenced data sources.
@@ -809,16 +794,14 @@ Param(
                 }
                 $props['Worksheets'] = $worksheets;
 
-                $dashboards = @()
-                $xml | Select-Xml '/workbook/dashboards/dashboard' | Select-Object -ExpandProperty Node | ForEach-Object {
+                $dashboards = $xml | Select-Xml '/workbook/dashboards/dashboard' | Select-Object -ExpandProperty Node | ForEach-Object {
                     # TODO: This really slows down the whole cmdlet. Find a way to make the dashboards' Worksheets property lazy evaluated.
-                    $dashboardWorksheets = @()
-                    $_ | Select-Xml './zones//zone' | Select-Object -ExpandProperty Node | Where-Object { $null -eq $_.Attributes['type'] -and $null -ne $_.Attributes['name'] } | ForEach-Object {
+                    $dashboardWorksheets = $_ | Select-Xml './zones//zone' | Select-Object -ExpandProperty Node | Where-Object { $null -eq $_.Attributes['type'] -and $null -ne $_.Attributes['name'] } | ForEach-Object {
                         # Assume any zone with a @name but not a @type is a worksheet zone.
                         $zone = $_
-                        $dashboardWorksheets += ($worksheets | Where-Object { $_.Name -eq $zone.Attributes['name'].Value })
+                        $worksheets | Where-Object { $_.Name -eq $zone.Attributes['name'].Value }
                     }
-                    $dashboards += New-Object PSObject -Property @{
+                    @{
                         Name = $_.Attributes['name'].Value;
                         DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value };
                         Worksheets = $dashboardWorksheets;
@@ -830,22 +813,64 @@ Param(
                 # $props['Actions'] = $actions;
                 # $props['Windows'] = $windows;
                 # $props['DataGraph'] = $datagraph;
-                $shapes = @()
-                $xml | Select-Xml '/workbook/external/shapes/shape' | Select-Object -ExpandProperty Node | ForEach-Object {
+                $shapes = $xml | Select-Xml '/workbook/external/shapes/shape' | Select-Object -ExpandProperty Node | ForEach-Object {
                     $shape = $_ | ConvertFrom-XmlAttr
                     $shape | Add-Member NoteProperty -Name Image -Value ([System.Convert]::FromBase64String($_.InnerText))
-                    $shapes += $shape
+                    $shape
                 }
                 $props['Shapes'] = $shapes;
-                $thumbnails = @()
-                $xml | Select-Xml '/workbook/thumbnails/thumbnail' | Select-Object -ExpandProperty Node | ForEach-Object {
+
+                $thumbnails = $xml | Select-Xml '/workbook/thumbnails/thumbnail' | Select-Object -ExpandProperty Node | ForEach-Object {
                     $thumbnail = $_ | ConvertFrom-XmlAttr
                     $thumbnail | Add-Member NoteProperty -Name Image -Value ([System.Convert]::FromBase64String($_.InnerText))
-                    $thumbnails += $thumbnail
+                    $thumbnail
                 }
                 $props['Thumbnails'] = $thumbnails;
+
+                # /workbook/referenced-extensions
+                $referenced_extensions = $xml | Select-Xml '/workbook/referenced-extensions/referenced-extension | /workbook/referenced-extensions/_.fcp.VizExtensions.true...referenced-extension' | Select-Object -ExpandProperty Node | ForEach-Object {
+                    $dashboard_extension = $_ | Select-Xml './manifest/dashboard-extension' | Select-Object -ExpandProperty Node
+                    $worksheet_extension = $_ | Select-Xml './manifest/worksheet-extension' | Select-Object -ExpandProperty Node
+                    if ($_.Name -eq 'referenced-extension') {
+                        $extension = $dashboard_extension
+                    } else {
+                        $extension = $worksheet_extension
+                    }
+                    $referenced_extension = New-Object PSObject -Property @{
+                        Type = if ($worksheet_extension) { 'worksheet-extension' } else { 'dashboard-extension' };
+                        ManifestVersion = ($_ | Select-Xml './manifest/@manifest-version').Node.Value;
+                        ExtensionVersion = $extension.Attributes['extension-version'].Value;
+                        ExtensionId = $extension.Attributes['id'].Value;
+                        SourceLocation = ($extension | Select-Xml './source-location/url').Node.InnerText;
+                        Name = ($extension | Select-Xml './name').Node.InnerText;
+                        Description = ($extension | Select-Xml './description').Node.InnerText; #$extension.description;
+                        Author = $extension.author | ConvertFrom-XmlAttr;
+                        MinApiVersion = ($extension | Select-Xml './min-api-version').Node.InnerText;
+                        DefaultLocale = ($extension | Select-Xml './default-locale').Node.InnerText;
+                        ContextMenu = if ($extension | Select-Xml './context-menu/configure-context-menu-item') { $true } else { $false };
+                        Icon = [System.Convert]::FromBase64String($extension.icon);
+                        # Resources = '';
+                        # ReferencedViews = '';
+                    }
+                    # Encoding for VizExtensions
+                    if ($worksheet_extension) {
+                        $encodings = $worksheet_extension | Select-Xml './encoding' | Select-Object -ExpandProperty Node | ForEach-Object {
+                            @{
+                                Id = $_.Attributes['id'].Value;
+                                DisplayName = ($_ | Select-Xml './display-name').Node.InnerText;
+                                RoleSpec = ($_ | Select-Xml './role-spec/role-type').Node.InnerText;
+                                FieldsMaxCount = ($_ | Select-Xml './fields/@max-count').Node.Value;
+                            }
+                        }
+                        $referenced_extension | Add-Member NoteProperty -Name Encoding -Value $encodings
+                    }
+                    # Write-Debug ($referenced_extension | ConvertTo-Json)
+                    $referenced_extension
+                }
+                $props['ReferencedExtensions'] = $referenced_extensions;
+
                 # explain-data
-                # _.fcp.ExplainData_AuthorControls.true...explain-data
+                # <_.fcp.ExplainData_AuthorControls.true...explain-data>
 
             } elseif ($doc_type -eq 'datasource') {
                 $props['Datasources'] = $datasources;

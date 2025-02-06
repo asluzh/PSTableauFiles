@@ -13,6 +13,7 @@ BeforeAll {
     # Requires -Modules Assert
     # InModuleScope 'PSTableauFiles' { $script:VerbosePreference = 'Continue' } # display verbose output of module functions
     $script:VerbosePreference = 'Continue' # display verbose output of the tests
+    # InModuleScope 'PSTableauFiles' { $script:DebugPreference = 'Continue' } # display verbose output of module functions
 }
 
 Describe "Unit Tests for Get-TableauFileXml" -Tag Unit {
@@ -229,6 +230,11 @@ Describe "Unit Tests for Get-TableauFileObject" -Tag Unit {
             $result.Worksheets | Should -Not -BeNullOrEmpty
             $result.Datasources | Should -Not -BeNullOrEmpty
             $result.DocumentXml | Should -BeOfType System.Xml.XmlDocument
+            if ($result.FileName -eq 'TUG Tableau Extensions.twbx') {
+                $result.ReferencedExtensions | Should -HaveCount 3
+                $result.ReferencedExtensions | Where-Object -Property Type -eq 'worksheet-extension' | Should -HaveCount 1
+                $result.ReferencedExtensions | Where-Object -Property Type -eq 'dashboard-extension' | Should -HaveCount 2
+            }
         }
     }
 }
