@@ -313,11 +313,12 @@ Param(
     [string]$Name
 )
     process {
-        if ($Name -eq '[:Measure Names]') {
-            'Measure Names'
-        } else {
             $Name -ireplace "^\[|\]$", ""
-        }
+        # if ($Name -eq '[:Measure Names]') {
+        #     'Measure Names'
+        # } else {
+        #     $Name -ireplace "^\[|\]$", ""
+        # }
     }
 }
 
@@ -523,7 +524,7 @@ Param(
                 $props['FileName'] = [System.IO.Path]::GetFileName($props['FilePath'])
             }
 
-            Write-Output (New-Object PSObject -Property $props)
+            New-Object PSObject -Property $props
             $i++
         }
     }
@@ -881,7 +882,7 @@ Param(
                 $props['FileName'] = [System.IO.Path]::GetFileName($props['FilePath'])
             }
 
-            Write-Output (New-Object PSObject -Property $props)
+            New-Object PSObject -Property $props
             $i++
         }
     }
