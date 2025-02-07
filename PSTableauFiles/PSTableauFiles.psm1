@@ -395,6 +395,18 @@ Param(
     }
 }
 
+function Get-TableauElementXpath {
+Param(
+    [Parameter(Mandatory,Position=1)]
+    [string]$Prefix,
+    [Parameter(Mandatory,Position=2)]
+    [string]$Tag
+)
+    # return $Prefix + '/' + $Tag
+    # return $Prefix + "/*[matches(name(), '$Tag')]" # XPath 2.0, not supported yet
+    return $Prefix + "/*[name()='$Tag' or substring(name(), string-length(name()) - $($Tag.Length+2))='...$Tag']"
+}
+
 function Get-TableauParamObject {
 Param(
     [Parameter(Mandatory,Position=0,ValueFromPipeline)][ValidateNotNullOrEmpty()]
@@ -507,14 +519,32 @@ Param(
                 SourcePlatform = ($xml | Select-Xml '/workbook/@source-platform').Node.Value;
                 SourceBuild = ($xml | Select-Xml '/workbook/@source-build').Node.Value;
             }
-            $xml | Select-Xml $XmlPath | Select-Object -ExpandProperty Node | ForEach-Object {
+            $xml | Select-Xml -XPath $XmlPath | Select-Object -ExpandProperty Node | ForEach-Object {
                 if ($XmlElements) {
-                    $props['Elements'] = $_.GetEnumerator() | ForEach-Object { $_ }
-                    # .get_name()
+                    # $props['Elements'] = $_.GetEnumerator() | Write-Output
+                    $props['Elements'] = $_.GetEnumerator() | ForEach-Object {
+                        New-Object PSObject -Property @{
+                            Name = if ($_ -match '^_\.fcp\..+\.\.\.') {
+                                $_ -replace '^_\.fcp\..+\.\.\.',''
+                            } else {
+                                $_.ToString()
+                            };
+                            Modifier = if ($_ -match '^_\.fcp\..+\.\.\.') {
+                                $_ -match '^_\.fcp\.(.+)\.(.+)\.\.\.'
+                                @{
+                                    Name = $matches[1]
+                                    Value = $matches[2]
+                                }
+                            };
+                            Element = $_
+                        }
+                    }
                 }
                 if ($XmlAttributes) {
-                    $props['Attributes'] = $_.Attributes.GetEnumerator() | Write-Output # ForEach-Object { @{name=$_.name; value=$_.value} }
-                    # .get_attributes().GetEnumerator() - name,value
+                    # $props['Attributes'] = $_.Attributes.GetEnumerator() | Write-Output
+                    $props['Attributes'] = $_.Attributes.GetEnumerator() | ForEach-Object {
+                        New-Object PSObject -Property @{ Name=$_.Name; Value=$_.Value }
+                    }
                 }
                 $props['XmlElement'] = $_
             }
@@ -596,7 +626,7 @@ Param(
                 $datasource_name = $_.name
                 if ($datasource_name -eq 'Parameters' -and $_.hasconnection -eq 'false' -and $_.inline -eq 'true') {
                     # this special data source contains the definition of parameters
-                    $_ | Select-Xml './column' | Select-Object -ExpandProperty Node | ForEach-Object {
+                    $_ | Select-Xml -XPath (Get-TableauElementXpath '.' 'column') | Select-Object -ExpandProperty Node | ForEach-Object {
                         $parameters += New-Object PSObject -Property ($_ | Get-TableauParamObject)
                     }
                 } else {
@@ -612,7 +642,7 @@ Param(
                     # datasource-dependencies (for params dependency)
                     # object-graph > objects > object
                     # object-graph > relationships > relationship
-                    $columns = $_ | Select-Xml './column' | Select-Object -ExpandProperty Node | ForEach-Object {
+                    $columns = $_ | Select-Xml -XPath (Get-TableauElementXpath '.' 'column') | Select-Object -ExpandProperty Node | ForEach-Object {
                         $column = @{
                             Name = $_.Attributes['name'].Value;
                             DisplayName = if ($_.Attributes['caption']) { $_.Attributes['caption'].Value } else { $_.Attributes['name'].Value | ConvertTo-TableauColumnDisplayName };
@@ -643,7 +673,7 @@ Param(
                         if (-Not $column_found) {
                             Write-Debug ("New column found: {0}" -f $column_name)
                             $xml | Select-Xml '/workbook/worksheets/worksheet/table/view/datasource-dependencies' | Select-Object -ExpandProperty Node | Where-Object datasource -eq $datasource_name | ForEach-Object {
-                                $_ws_column = $_ | Select-Xml './column' | Select-Object -ExpandProperty Node | Where-Object name -eq $column_name | Select-Object -First 1
+                                $_ws_column = $_ | Select-Xml -XPath (Get-TableauElementXpath '.' 'column') | Select-Object -ExpandProperty Node | Where-Object name -eq $column_name | Select-Object -First 1
                                 if ($_ws_column) {
                                     $column = @{
                                         Name = $_ws_column.Attributes['name'].Value;
@@ -666,7 +696,7 @@ Param(
                             }
                         }
                     }
-                    $folders = $_ | Select-Xml './folders-common/folder' | Select-Object -ExpandProperty Node | ForEach-Object {
+                    $folders = $_ | Select-Xml -XPath (Get-TableauElementXpath './folders-common' 'folder') | Select-Object -ExpandProperty Node | ForEach-Object {
                         @{
                             Name = $_.name;
                             FolderItems = $_.'folder-item' | ForEach-Object {
@@ -777,7 +807,7 @@ Param(
                 }
                 $props['ColorPalettes'] = $color_palettes;
 
-                $styles = $xml | Select-Xml '/workbook/style/style-rule' | Select-Object -ExpandProperty Node | ForEach-Object {
+                $styles = $xml | Select-Xml -XPath (Get-TableauElementXpath '/workbook/style' 'style-rule') | Select-Object -ExpandProperty Node | ForEach-Object {
                     $style_rule = $_ | ConvertFrom-XmlAttr
                     if ($_.format) {
                         $style_rule | Add-Member NoteProperty -Name Format -Value ($_.format | ConvertFrom-XmlAttr)
@@ -828,8 +858,9 @@ Param(
                 }
                 $props['Thumbnails'] = $thumbnails;
 
-                # /workbook/referenced-extensions
-                $referenced_extensions = $xml | Select-Xml '/workbook/referenced-extensions/referenced-extension | /workbook/referenced-extensions/_.fcp.VizExtensions.true...referenced-extension' | Select-Object -ExpandProperty Node | ForEach-Object {
+                # /workbook/referenced-extensions/*referenced-extension
+                $referenced_extensions = $xml | Select-Xml -XPath (Get-TableauElementXpath '/workbook/referenced-extensions' 'referenced-extension') |
+                    Select-Object -ExpandProperty Node | ForEach-Object {
                     $dashboard_extension = $_ | Select-Xml './manifest/dashboard-extension' | Select-Object -ExpandProperty Node
                     $worksheet_extension = $_ | Select-Xml './manifest/worksheet-extension' | Select-Object -ExpandProperty Node
                     if ($_.Name -eq 'referenced-extension') {
@@ -870,8 +901,7 @@ Param(
                 }
                 $props['ReferencedExtensions'] = $referenced_extensions;
 
-                # explain-data
-                # <_.fcp.ExplainData_AuthorControls.true...explain-data>
+                # explain-data | _.fcp.ExplainData_AuthorControls.true...explain-data
 
             } elseif ($doc_type -eq 'datasource') {
                 $props['Datasources'] = $datasources;

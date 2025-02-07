@@ -11,7 +11,7 @@ BeforeAll {
     Get-Module -Name $ModuleName -All | Remove-Module -Force -ErrorAction Ignore
     Import-Module ./$ModuleName -Force
     # Requires -Modules Assert
-    # InModuleScope 'PSTableauFiles' { $script:VerbosePreference = 'Continue' } # display verbose output of module functions
+    InModuleScope 'PSTableauFiles' { $script:VerbosePreference = 'Continue' } # display verbose output of module functions
     $script:VerbosePreference = 'Continue' # display verbose output of the tests
     # InModuleScope 'PSTableauFiles' { $script:DebugPreference = 'Continue' } # display verbose output of module functions
 }
@@ -114,106 +114,101 @@ Describe "Unit Tests for Get-TableauFileStructure" -Tag Unit {
         It "Workbook structure (workbook) contains known elements and attributes - <_>" {
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook' -XmlElements -XmlAttributes
             $result.Length | Should -Be 1
-            $result.Elements | Should -BeOfType System.Xml.XmlElement
             $result.Elements.Length | Should -BeGreaterThan 1
-            $result.Elements | Select-Object -ExpandProperty 'Name' | Should -Contain 'datasources'
-            $result.Elements | Select-Object -ExpandProperty 'Name' | Should -Contain 'worksheets'
-            # $result.Elements | Select-Object -ExpandProperty 'Name' | Should -Contain 'repository-location' # only for workbooks that have been ever published
-            $result.Elements | Select-Object -ExpandProperty 'Name' | Should -Contain 'preferences'
+            $result.Elements | Select-Object -ExpandProperty Name | Should -Contain 'datasources'
+            $result.Elements | Select-Object -ExpandProperty Name | Should -Contain 'worksheets'
+            # $result.Elements | Select-Object -ExpandProperty Name | Should -Contain 'repository-location' # only for workbooks that have been ever published
+            $result.Elements | Select-Object -ExpandProperty Name | Should -Contain 'preferences'
             $known_elem = @('document-format-change-manifest','repository-location','preferences','style',
                 'datasources','datasource-relationships','mapsources','shared-views','actions',
                 'worksheets','dashboards','windows','datagraph','external','thumbnails',
-                'referenced-extensions','explain-data',
-                '_.fcp.ExplainData_AuthorControls.true...explain-data',
-                '_.fcp.WorkbookOptimizerRuleConfig.true...workbook-optimizer',
-                '_.fcp.AnimationOnByDefault.false...style')
-            $result.Elements | Select-Object -ExpandProperty 'Name' | Should -BeIn $known_elem
-            $result.Attributes | Should -BeOfType System.Xml.XmlAttribute
+                'referenced-extensions','explain-data','workbook-optimizer')
+            $result.Elements | Select-Object -ExpandProperty Name | Should -BeIn $known_elem
             $result.Attributes.Length | Should -BeGreaterThan 1
-            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'source-build'
-            # $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'source-platform'
-            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'version'
+            $result.Attributes | Select-Object -ExpandProperty Name | Should -Contain 'source-build'
+            # $result.Attributes | Select-Object -ExpandProperty Name | Should -Contain 'source-platform'
+            $result.Attributes | Select-Object -ExpandProperty Name | Should -Contain 'version'
             $known_attr = @('xml:base','xmlns:user','source-build','source-platform','version','original-version','upgrade-extracts')
-            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -BeIn $known_attr
+            $result.Attributes | Select-Object -ExpandProperty Name | Should -BeIn $known_attr
         }
         It "Workbook structure (workbook/datasources) contains known elements and attributes - <_>" {
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/datasources' -XmlElements
             $result.Elements.Length | Should -BeGreaterOrEqual 1
-            $result.Elements | ForEach-Object { $_.get_name() } | Should -Contain 'datasource'
-            $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('datasource')
+            $result.Elements | Select-Object -ExpandProperty Name | Should -Contain 'datasource'
+            $result.Elements | Select-Object -ExpandProperty Name | Should -BeIn @('datasource')
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/datasources/datasource' -XmlElements -XmlAttributes
             $result.Elements.Length | Should -BeGreaterOrEqual 1
-            $result.Elements | ForEach-Object { $_.get_name() } | Should -Contain 'connection'
-            $result.Elements | ForEach-Object { $_.get_name() } | Should -Contain 'column'
+            $result.Elements | Select-Object -ExpandProperty Name | Should -Contain 'connection'
+            $result.Elements | Select-Object -ExpandProperty Name | Should -Contain 'column'
             $known_elem = @('connection','column','aliases','column-instance','semantic-values','group','filter',
-                'drill-paths','default-sorts','field-sort-info','folders-common','date-options',
-                'layout','style','overridable-settings',
-                'extract','datasource-dependencies','object-graph','repository-location',
-                '_.fcp.ObjectModelTableType.true...column',
-                '_.fcp.ObjectModelEncapsulateLegacy.true...object-graph')
-            $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn $known_elem
+                'drill-paths','default-sorts','field-sort-info','folder','folders-common',
+                'layout','style','overridable-settings','date-options',
+                'extract','datasource-dependencies','object-graph','repository-location')
+            $result.Elements | Select-Object -ExpandProperty Name | Should -BeIn $known_elem
             $result.Attributes.Length | Should -BeGreaterOrEqual 1
-            $result.Attributes | Should -BeOfType System.Xml.XmlAttribute
-            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'name'
-            # $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'inline'
-            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'version'
-            # $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'caption' # not for all datasources
+            $result.Attributes | Select-Object -ExpandProperty Name | Should -Contain 'name'
+            # $result.Attributes | Select-Object -ExpandProperty Name | Should -Contain 'inline'
+            $result.Attributes | Select-Object -ExpandProperty Name | Should -Contain 'version'
+            # $result.Attributes | Select-Object -ExpandProperty Name | Should -Contain 'caption' # not for all datasources
             $known_attr = @('name','version','caption','inline')
-            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -BeIn $known_attr
+            $result.Attributes | Select-Object -ExpandProperty Name | Should -BeIn $known_attr
         }
         It "Workbook structure (workbook/datasources/column) contains known elements and attributes - <_>" {
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/datasources/datasource/column' -XmlAttributes
             $result.Attributes.Length | Should -BeGreaterThan 1
-            $result.Attributes | Should -BeOfType System.Xml.XmlAttribute
-            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'name'
-            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'role'
-            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'type'
-            $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'datatype'
-            # $result.Attributes | Select-Object -ExpandProperty 'Name' | Should -Contain 'caption' # not for all columns
+            $result.Attributes | Select-Object -ExpandProperty Name | Should -Contain 'name'
+            $result.Attributes | Select-Object -ExpandProperty Name | Should -Contain 'role'
+            $result.Attributes | Select-Object -ExpandProperty Name | Should -Contain 'type'
+            $result.Attributes | Select-Object -ExpandProperty Name | Should -Contain 'datatype'
+            # $result.Attributes | Select-Object -ExpandProperty Name | Should -Contain 'caption' # not for all columns
         }
         It "Workbook structure (workbook/*) contains known elements and attributes - <_>" {
+            $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/preferences' -XmlElements
+            if ($result.Elements) {
+                $result.Elements | Select-Object -ExpandProperty Name | Should -BeIn @('preference','color-palette')
+            }
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/worksheets' -XmlElements
-            $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('worksheet')
+            $result.Elements | Select-Object -ExpandProperty Name | Should -BeIn @('worksheet')
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/worksheets/worksheet' -XmlElements
-            $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('repository-location','simple-id',
+            $result.Elements | Select-Object -ExpandProperty Name | Should -BeIn @('repository-location','simple-id',
                 'table','layout-options')
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/dashboards' -XmlElements
             if ($result.Elements) {
-                $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('dashboard')
+                $result.Elements | Select-Object -ExpandProperty Name | Should -BeIn @('dashboard')
             }
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/dashboards/dashboard' -XmlElements
             if ($result.Elements) {
-                $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('repository-location','simple-id',
+                $result.Elements | Select-Object -ExpandProperty Name | Should -BeIn @('repository-location','simple-id',
                     'layout-options','style','size','datasources','datasource-dependencies',
                     'zones','devicelayouts')
             }
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/windows' -XmlElements
             if ($result.Elements) {
-                $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('window')
+                $result.Elements | Select-Object -ExpandProperty Name | Should -BeIn @('window')
             }
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/windows/window' -XmlElements
-            $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('simple-id',
+            $result.Elements | Select-Object -ExpandProperty Name | Should -BeIn @('simple-id',
                 'active','viewpoints','viewpoint','cards')
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/actions' -XmlElements
             if ($result.Elements) {
-                $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('action','edit-parameter-action','nav-action','edit-group-action',
+                $result.Elements | Select-Object -ExpandProperty Name | Should -BeIn @('action','edit-parameter-action','nav-action','edit-group-action',
                 'datasources','datasource-dependencies')
             }
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/thumbnails' -XmlElements
             if ($result.Elements) {
-                $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('thumbnail')
+                $result.Elements | Select-Object -ExpandProperty Name | Should -BeIn @('thumbnail')
             }
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/external' -XmlElements
             if ($result.Elements) {
-                $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('shapes')
+                $result.Elements | Select-Object -ExpandProperty Name | Should -BeIn @('shapes')
             }
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/style' -XmlElements
             if ($result.Elements) {
-                $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('style-rule','_.fcp.MarkAnimation.true...style-rule')
+                $result.Elements | Select-Object -ExpandProperty Name | Should -BeIn @('style-rule')
             }
             $result = Get-TableauFileStructure -Path $_ -XmlPath '/workbook/referenced-extensions' -XmlElements
             if ($result.Elements) {
-                $result.Elements | ForEach-Object { $_.get_name() } | Should -BeIn @('referenced-extension','_.fcp.VizExtensions.true...referenced-extension')
+                $result.Elements | Select-Object -ExpandProperty Name | Should -BeIn @('referenced-extension')
             }
         }
     }
